@@ -1,0 +1,27 @@
+{
+  "name": "see-me-backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/dev.ts",
+    "start": "NODE_ENV=production tsx src/server.ts",
+    "db:setup": "tsx src/setupDb.ts",
+    "generate": "prisma generate",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.5",
+    "@prisma/client": "^6.19.3",
+    "dotenv": "^17.4.2",
+    "hono": "^4.12.26"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "prisma": "^6.19.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  phone       String   @unique
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  notes    Note[]
+  tags     Tag[]
+  cards    Card[]
+  holdings CardHolder[]
+  sessions Session[]
+
+  @@map("users")
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noteTags NoteTag[]
+
+  @@index([userId, createdAt])
+  @@map("notes")
+}
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String @map("user_id")
+  name   String
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noteTags NoteTag[]
+  cardTags CardTag[]
+
+  @@unique([userId, name])
+  @@map("tags")
+}
+
+model NoteTag {
+  noteId String @map("note_id")
+  tagId  String @map("tag_id")
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([noteId, tagId])
+  @@map("note_tags")
+}
+
+model Card {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  title        String
+  visibleUntil DateTime @map("visible_until") @db.Timestamptz(6)
+  inviteCode   String   @unique @map("invite_code")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardTags CardTag[]
+  holders  CardHolder[]
+
+  @@map("cards")
+}
+
+model CardTag {
+  cardId       String  @map("card_id")
+  tagId        String  @map("tag_id")
+  isAutoUpdate Boolean @default(false) @map("is_auto_update")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([cardId, tagId])
+  @@map("card_tags")
+}
+
+model CardHolder {
+  id         String   @id @default(cuid())
+  cardId     String   @map("card_id")
+  userId     String   @map("user_id")
+  redeemedAt DateTime @default(now()) @map("redeemed_at") @db.Timestamptz(6)
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, userId])
+  @@map("card_holders")
+}
+
+model PhoneOtp {
+  phone     String   @id
+  codeHash  String   @map("code_hash")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  attempts  Int      @default(0)
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("phone_otps")
+}
+
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model RateLimit {
+  key       String   @id
+  count     Int      @default(0)
+  windowEnd DateTime @map("window_end") @db.Timestamptz(6)
+
+  @@map("rate_limits")
+}
