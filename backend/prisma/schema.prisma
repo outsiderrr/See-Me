@@ -54,7 +54,7 @@ model NoteTag {
   tagId  String @map("tag_id")
 
   note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([noteId, tagId])
   @@map("note_tags")

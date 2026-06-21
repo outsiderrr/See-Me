@@ -6,7 +6,8 @@ import { startLocalPg } from './localPg';
 const { url } = await startLocalPg();
 console.log(`[see-me] local postgres up: ${url}`);
 
-execSync('npx prisma migrate dev --name init', {
+const name = process.argv[2] ?? 'init';
+execSync(`npx prisma migrate dev --name ${name}`, {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: url },
 });

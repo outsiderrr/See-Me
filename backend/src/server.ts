@@ -5,6 +5,8 @@ import { db } from './db';
 import { env } from './env';
 import { withUser, requireAuth, type AuthVars } from './auth/middleware';
 import { authRoutes } from './routes/auth';
+import { noteRoutes } from './routes/notes';
+import { tagRoutes } from './routes/tags';
 
 export function buildApp() {
   const app = new Hono<AuthVars>();
@@ -17,6 +19,8 @@ export function buildApp() {
   });
 
   app.route('/api/auth', authRoutes);
+  app.route('/api/notes', noteRoutes);
+  app.route('/api/tags', tagRoutes);
 
   app.get('/api/me', requireAuth, async (c) => {
     const userId = c.get('userId')!;
