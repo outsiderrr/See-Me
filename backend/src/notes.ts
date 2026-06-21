@@ -1,12 +1,7 @@
 import { db } from './db';
+import { assertTagsOwned } from './own';
 
 const withTags = { noteTags: { include: { tag: true } } } as const;
-
-async function assertTagsOwned(userId: string, tagIds: string[]): Promise<void> {
-  if (tagIds.length === 0) return;
-  const owned = await db.tag.findMany({ where: { id: { in: tagIds }, userId }, select: { id: true } });
-  if (owned.length !== new Set(tagIds).size) throw new Error('tag_not_owned');
-}
 
 export async function createNote(userId: string, body: string, tagIds: string[] = []) {
   await assertTagsOwned(userId, tagIds);
