@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { db } from './db';
 import { env } from './env';
@@ -18,7 +19,7 @@ export function buildApp() {
     return c.json({ error: 'internal' }, 500);
   });
 
-  app.use('*', withUser);
+  app.use('/api/*', withUser);
 
   app.get('/health', async (c) => {
     await db.$queryRaw`SELECT 1`;
@@ -39,6 +40,9 @@ export function buildApp() {
     });
     return c.json({ user });
   });
+
+  // B reading web (vanilla JS) served from ./public; must be the last (catch-all) route.
+  app.use('/*', serveStatic({ root: './public' }));
 
   return app;
 }
