@@ -7,33 +7,74 @@ export async function createTag(userId: string, name: string) {
 export async function listTags(userId: string) {
   const tags = await db.tag.findMany({
     where: { userId },
-    orderBy: { name: 'asc' },
-    include: { _count: { select: { noteTags: true, shareTags: true } } },
+    include: {
+      _count: { select: { noteTags: true, shareTags: true } },
+      noteTags: { select: { note: { select: { updatedAt: true } } } },
+    },
   });
-  return tags.map((t) => ({
-    id: t.id,
-    name: t.name,
-    noteCount: t._count.noteTags,
-    shareCount: t._count.shareTags,
-  }));
+  return tags
+    .map((t) => ({
+      id: t.id,
+      name: t.name,
+      icon: t.icon,
+      isPinned: t.pinnedAt !== null,
+      lastUsedAt: t.noteTags.reduce<Date | null>(
+        (latest, nt) => (!latest || nt.note.updatedAt > latest ? nt.note.updatedAt : latest),
+        null,
+      ),
+      noteCount: t._count.noteTags,
+      shareCount: t._count.shareTags,
+    }))
+    .sort((a, b) => {
+      const at = a.lastUsedAt?.getTime() ?? 0;
+      const bt = b.lastUsedAt?.getTime() ?? 0;
+      return bt - at || a.name.localeCompare(b.name);
+    });
 }
 
-export async function renameTag(userId: string, id: string, name: string): Promise<boolean> {
-  const r = await db.tag.updateMany({ where: { id, userId }, data: { name } });
+export async function updateTag(
+  userId: string,
+  id: string,
+  patch: { name?: string; icon?: string | null; pinned?: boolean },
+): Promise<boolean> {
+  const r = await db.tag.updateMany({
+    where: { id, userId },
+    data: {
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.icon !== undefined ? { icon: patch.icon } : {}),
+      ...(patch.pinned !== undefined ? { pinnedAt: patch.pinned ? new Date() : null } : {}),
+    },
+  });
   return r.count > 0;
 }
 
-/** Delete a tag. Refused if it is still used in any share (include OR exclude):
- *  ShareTag is ON DELETE RESTRICT, and deleting it would silently change what a live
- *  card shares (§4). NoteTag cascades, so the tag detaches from notes cleanly. */
+export type DeleteTagMode = 'delete_notes' | 'detach';
+
+/** Delete a tag without ever broadening a live card:
+ *  - every share that references this tag is deleted wholesale. Required tags cannot
+ *    be weakened (A∩B -> A), and excluded tags cannot be detached because notes that
+ *    lose that exclusion marker could otherwise become newly visible;
+ *  - notes are either deleted wholesale or kept with the tag detached. */
 export async function deleteTag(
   userId: string,
   id: string,
-): Promise<{ ok: boolean; reason?: 'not_found' | 'in_card' }> {
+  mode: DeleteTagMode,
+): Promise<{ ok: boolean; reason?: 'not_found' }> {
   const tag = await db.tag.findFirst({ where: { id, userId }, select: { id: true } });
   if (!tag) return { ok: false, reason: 'not_found' };
-  const inShares = await db.shareTag.count({ where: { tagId: id } });
-  if (inShares > 0) return { ok: false, reason: 'in_card' };
-  await db.tag.delete({ where: { id } });
+
+  const referencedBy = await db.shareTag.findMany({
+    where: { tagId: id },
+    select: { shareId: true },
+  });
+  const referencedShareIds = referencedBy.map((row) => row.shareId);
+
+  await db.$transaction([
+    db.share.deleteMany({ where: { id: { in: referencedShareIds }, card: { userId } } }),
+    ...(mode === 'delete_notes'
+      ? [db.note.deleteMany({ where: { userId, noteTags: { some: { tagId: id } } } })]
+      : [db.noteTag.deleteMany({ where: { tagId: id, note: { userId } } })]),
+    db.tag.delete({ where: { id } }),
+  ]);
   return { ok: true };
 }

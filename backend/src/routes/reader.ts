@@ -6,7 +6,7 @@ import { requireAuth } from '../auth/middleware';
 import { consume } from '../lib/rateLimit';
 import { redeemCode } from '../redeem';
 import { readerCardAccess, cardShareTabs, shareInCard } from '../permission/access';
-import { readerFeed } from '../permission/engine';
+import { readerCanAccessNote, readerFeed } from '../permission/engine';
 import { db } from '../db';
 
 export const readerRoutes = new Hono<AuthVars>();
@@ -56,11 +56,30 @@ readerRoutes.post('/redeem', async (c) => {
 readerRoutes.get('/my-cards', async (c) => {
   const holdings = await db.cardHolder.findMany({
     where: { userId: c.get('userId')! },
-    include: { card: { select: { id: true, title: true } } },
+    include: {
+      card: {
+        select: {
+          id: true,
+          title: true,
+          user: { select: { displayName: true, phone: true } },
+        },
+      },
+    },
     orderBy: { redeemedAt: 'desc' },
   });
-  return c.json({ cards: holdings.map((h) => ({ id: h.card.id, title: h.card.title })) });
+  return c.json({
+    cards: holdings.map((h) => ({
+      id: h.card.id,
+      title: h.card.title,
+      ownerName: h.card.user.displayName || maskPhone(h.card.user.phone),
+    })),
+  });
 });
+
+function maskPhone(phone: string): string {
+  if (phone.length < 7) return phone;
+  return phone.slice(0, 3) + '••••' + phone.slice(-4);
+}
 
 /** Reader card header: title + tabs (share display names). Access-guarded. */
 readerRoutes.get('/read/:cardId', async (c) => {
@@ -99,4 +118,20 @@ readerRoutes.get('/read/:cardId/notes', async (c) => {
     cursor,
   });
   return c.json({ notes, nextCursor });
+});
+
+readerRoutes.get('/read/:cardId/images/:imageId', async (c) => {
+  const card = await readerCardAccess(c.req.param('cardId'), c.get('userId')!);
+  if (!card) return c.json({ error: 'not_found' }, 404);
+  const image = await db.noteImage.findUnique({
+    where: { id: c.req.param('imageId') },
+    select: { noteId: true, data: true, mimeType: true },
+  });
+  if (!image || !(await readerCanAccessNote(card.id, card.userId, card.visibleUntil, image.noteId))) {
+    return c.json({ error: 'not_found' }, 404);
+  }
+  return c.body(Buffer.from(image.data), 200, {
+    'Content-Type': image.mimeType,
+    'Cache-Control': 'private, max-age=300',
+  });
 });

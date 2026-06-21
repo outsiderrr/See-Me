@@ -1,13 +1,17 @@
-# See Me — MVP 技术设计 (v4,分享模型 = 交集+排除)
+# See Me — MVP 技术设计 (v5,分享模型 = 交集+排除)
 
 > 状态:设计已与用户确认 + 权限模型经 4 路对抗式审查加固;后端 + B 网页已实现并验证
 > 日期:2026-06-21
+> v5 变更(库体验 + 邀请码):A 端库采用 flomo 式卡片/侧栏/底部可拉伸编辑器;笔记支持最多 9 图,
+> 图片与正文走同一实时权限;标签支持置顶、Emoji、按最近使用排序及双模式删除。邀请码从单独 4 位改为
+> **单独 8 位**(31^8≈8529 亿),仍保留多层限流。A app 侧栏加入「收到的邀请卡」,可搜索或输码兑换并
+> 直接切换到读者视图。删除标签时,所有引用该标签(必含或排除)的 Share 整条删除,确保权限只收紧。
 > v4 变更(分享模型重做):卡的授权单位从「标签并集」改为「**分享(Share)**」。一个分享 =
 >   `必含标签(AND) + 排除标签(NOT)` + 显示名 + 是否自动更新;一条 note 经某分享授权 ⟺
 >   含该分享全部必含标签 ∧ 不含任何排除标签 ∧(分享自动更新 或 note ≤ 截止点)。卡 = 各分享的并集。
 >   读者看到的 tab/chip 是**分享显示名**,构成它的标签永不外泄。原「并集模型」= 每个分享只有 1 个必含标签。
 >   数据层 `CardTag` → `Share` + `ShareTag`。并入实现期对抗式审查的修订(游标 µs 精度、畸形游标不崩、
->   兑换多层限流 per-user+per-IP+global、兑换不暴露卡存在性、限流计数钳制、邀请码空间实为 31^4≈923K)。
+>   兑换多层限流 per-user+per-IP+global、兑换不暴露卡存在性、限流计数钳制)。
 > v2 变更:并入 16 条审查修订(详见 §3–§6 红线)。两处产品语义经用户拍板:
 > (1) 标签 tab/chip 按「经由该标签授权」显示(非全局 V 过滤);
 > (2) 持卡人信息数据层保留、MVP 产品层 A 不可见。
@@ -48,7 +52,8 @@
 |---|---|---|
 | **User** | id, phone(唯一), display_name?, created_at | A 与 B 同表,靠是否拥有 Note/Card 区分角色 |
 | **Note** | id, user_id(作者=A), body, created_at(**TIMESTAMPTZ**), updated_at | `created_at`=录入时刻,可见性时间判断用它;编辑改 updated_at 不改 created_at |
-| **Tag** | id, user_id, name, unique(user_id,name) | |
+| **NoteImage** | id, note_id, mime_type, data, sort_order | 每条最多 9 图;图片 API 必须复用 Note 的 owner/reader 实时权限,不可公开静态托管 |
+| **Tag** | id, user_id, name, icon?, pinned_at?, unique(user_id,name) | 排序用关联 Note 的最大 updated_at;重命名/置顶不改变“最近使用” |
 | **NoteTag** | note_id, tag_id, PK(note_id,tag_id);**FK→Tag ON DELETE RESTRICT** | 多对多 |
 | **Card** | id, user_id(主人=A), title, visible_until(**TIMESTAMPTZ**,默认=created_at), invite_code(唯一,归一化大写存储), created_at | 含一组 Share |
 | **Share** | id, card_id, name(读者可见的显示名), is_auto_update(默认 false), created_at | 卡里的一条「分享规则」;读者把它看作一个 tab |
@@ -102,42 +107,40 @@ WHERE n.user_id = :cardOwnerId
 - **分页**:`created_at_raw` 是 µs 全精度文本(规避 JS Date 毫秒截断丢数据);游标 = `created_at_raw + "_" + id`,按精确串比较切片;**畸形游标一律回首页,绝不崩**(配 `app.onError` 兜底)。
 - **读者 Note DTO 列白名单**:`{ id, body, created_at, 授权分享[] }` —— 不含 `updated_at`、不含任何标签名,池外/排除标签结构上不过网络边界。
 
-**读者 Note DTO 列白名单:`{ id, body, created_at, 授权标签[] }`。结构上不含 updated_at、不含池外标签——池外标签绝不过网络边界。**
-
 ### 3.3 两个 tab 的语义
 
 - **「最近更新」tab**(默认)= STEP 1 全集(V),按 `created_at DESC, id DESC`,keyset 分页,首屏 20 条。**是 V 之内的最新,绝不是 A 全库最新。**
-- **标签 tab T** = STEP 1 加 `AND ct.tag_id = :tabTagId`,即**只显示经由 T 授权的 note**(按 T 自己的 auto_update/cutoff 判断),**而非"全局 V 含 T"**。同样 keyset 分页,不可无上限返回。
-  - 结论:一条今天的 note 经自动标签 T1 可见 → 出现在「最近更新」和 T1 tab,**不出现在冻结标签 T2 的 tab**、也不挂 T2 chip。
-- **tab/标签名列表只来源于当前 CardTag 池**(标签仍在池中才命名);加固「移出即静默消失」。
+- **分享 tab S** = 只显示授权对中 `share_id=S` 的 note,按 S 自己的 auto_update/cutoff 判断。同样 keyset 分页,不可无上限返回。
+  - 结论:一条今天的 note 经自动分享 S1 可见 → 出现在「最近更新」和 S1 tab,**不出现在冻结分享 S2 的 tab**、也不挂 S2 chip。
+- **tab/chip 名只来源于卡当前 Share 的显示名**;构成 Share 的内部标签名永不下发。
 
 ### 3.4 三种动态更新由上述谓词自动满足
 
 - **推进时间** = `visible_until := now()`。
-- **增/减标签** = 改 CardTag 行;移出后实时重算,相关 note 自动消失、零痕迹。
-- **自动更新** = 该 CardTag `is_auto_update=true`,新内容绕过时间判断。
+- **增/减分享或修改 ShareTag** = 实时重算;移出后相关 note 自动消失、零痕迹。
+- **自动更新** = 该 Share `is_auto_update=true`,新内容绕过时间判断。
 
 ## 4. 防泄漏红线(实现必须遵守)
 
-1. **标签渲染按「经由该标签授权」**:渲染某 Note 的标签,只显示满足 `T∈卡池子 且 该 Note 经由 T 授权`(`ct_T.is_auto_update=TRUE OR n.created_at<=visible_until`)的标签。池中但未对该 Note 授权的标签,不显示在该 Note 上。池外标签更不显示。
+1. **分享名按实际授权渲染**:只显示真正授权该 Note 的 Share 显示名。未授权该 Note 的 Share 不显示;任何内部 include/exclude 标签名都不显示。
 2. 可见性查询**一律服务端实时计算**;前端只拿结果,绝不下发 A 全量数据再前端过滤。
 3. 读者侧**不写任何阅读信号回传**(无已读/停留/进度);A 端无此读取面。
 4. "曾经可见、现在不可见"的内容,接口不返回、不留痕。**每一页分页都服务端重跑完整实时 V 谓词**,客户端 cursor 仅作位置,绝不据 cursor 绕过 V 重算;已不在 V 内的 cursor 目标重新夹取/丢弃。
 5. **IDOR 红线**:见 §3.0(服务端反查 owner + 校验 CardHolder + 每查保留 `n.user_id=:cardOwnerId`)。无 CardHolder 一律 403/404。
-6. **读者 payload 列白名单**:只含 `id, body, created_at, 授权标签`;不含 `updated_at`;所有读者侧排序/标注用 `created_at`,绝不用 `updated_at`(否则今天编辑旧文会泄露截止点后的活动)。
+6. **读者 payload 列白名单**:只含 `id, body, created_at, 授权分享名, image_id`;不含 `updated_at`;所有读者侧排序/标注用 `created_at`,绝不用 `updated_at`(否则今天编辑旧文会泄露截止点后的活动)。图片二进制按 image_id 单独请求并重新校验同一卡的实时权限。
 7. **持卡人零回传(MVP)**:A 的建卡/管理 API 与 UI **不暴露 CardHolder**——无人数、无身份、无 redeemed_at。作废/轮换 操作于 码/卡 本身,不基于 A 可查看的持有人列表。(数据层保留 CardHolder+redeemed_at+手机号,为未来"A 取证查询"留能力,但 MVP 无任何 A 面接口读取。)
 8. **无反向查询**:系统任何地方都没有 per-note「这条现在谁能看到 / 哪些卡暴露了它」的查询或 UI;可见性只在 卡→Note 方向、读取时计算。此省略刻意,不得当便利功能加回。
 
 ## 5. 邀请码
 
-- **形式**:4 位,字符集**定死 `[2-9A-HJ-NP-Z]`**(剔除易混淆 0 O 1 I L),空间 ~32⁴ ≈ **105 万**。
-- **归一化**:去空白 → ASCII 大写(**locale-invariant,不用区域 toUpperCase**)→ 按精确字符集校验,集外字符直接拒绝,不做静默映射。生成碰撞重试上限 5 次,超限则报错(或临时扩 5 位);作废/轮换码进 tombstone,MVP 内不复用。
+- **形式**:8 位,字符集**定死 `[2-9A-HJ-NP-Z]`**(剔除易混淆 0 O 1 I L),空间 **31⁸≈8529 亿**。
+- **归一化**:去空白 → ASCII 大写(**locale-invariant,不用区域 toUpperCase**)→ 按精确字符集校验,集外字符直接拒绝,不做静默映射。生成碰撞重试上限 8 次,超限则报错;轮换后旧码立即失效。
 - 一张卡一个码;可被多名受众输入兑换,每次生成一条 CardHolder(`unique(card_id,user_id)` 防重复绑定)。
 - **拒绝自兑换**:`Card.user_id == 当前用户` → 兑换接口直接拒绝,不建 CardHolder(改用 §7 的 owner-preview)。
 - **安全(单因子,B 只输码)**:
   - 兑换限流存储**跨进程原子**(DB 行级原子 UPSERT 或 Redis INCR/Lua),**禁纯进程内内存计数器**。
   - 多层:(a) 同账号/同 IP 连续输错指数退避锁定;(b) **每码失败预算**;(c) **平台级滚动窗口失败总预算**,触发后全局降速/captcha/告警(阈值与动作写入实现)。
-  - **已接受风险声明**:用户选定 4 位(对标百度网盘),为单因子 ~105 万空间。审查建议加长到 6 位或"链接+码",**用户决定保留 4 位**,以上限流为补偿;转公开/上规模时再加长或改两因子。
+  - 仍是单因子凭证,所以多层限流、不可枚举响应与轮换机制继续保留。
 
 ## 6. 鉴权与会话
 
@@ -151,19 +154,22 @@ WHERE n.user_id = :cardOwnerId
 
 1. 手机号注册/登录(OTP)。
 2. 新建或粘贴 Note。
-3. 给 Note 打一个或多个标签。
-4. 浏览/搜索/筛选自己的库:按标签筛 + **文本搜索 `ILIKE` 必须参数化**(`body ILIKE :pattern`,pattern 应用层构造 `%`+escape(q)+`%`,转义 `% _ \\`,严禁拼接 SQL)+ **强制 `WHERE user_id=:currentUserId`**(纯作者端,与读者侧无关;测试:B 搜不到 A 的 note)。中文全文检索留待以后。
-5. 建卡:选若干标签入池 → 生成 4 位码/分享入口。
-6. 维护卡:推进时间 / 增减标签 / 给标签开自动更新 / 作废轮换码。
-7. **预览本卡(owner-preview)**:专用 owner-only 端点,以 `cardOwnerId=self` + 卡当前 `visible_until` 跑 §3.2 两步计算,**不建 CardHolder 行**,结果与读者实际视图一致。
-8. (Phase 2)AI 帮整理库、建议标签。
+3. 给 Note 打一个或多个标签;编辑器内 `#标签` 蓝色显示,以空格/换行结束,保存时转成结构化 Tag 并从 body 剥离。
+4. 可附最多 9 张图片;图片随 Note 一起受卡的实时权限控制。
+5. 浏览/搜索/筛选自己的库:按标签筛 + **文本搜索 `ILIKE` 必须参数化**(`body ILIKE :pattern`,pattern 应用层构造 `%`+escape(q)+`%`,转义 `% _ \\`,严禁拼接 SQL)+ **强制 `WHERE user_id=:currentUserId`**(纯作者端,与读者侧无关;测试:B 搜不到 A 的 note)。中文全文检索留待以后。
+6. 建卡:选若干标签组成 Share → 生成 8 位码。
+7. 维护卡:推进时间 / 增减 Share / 开自动更新 / 作废轮换码。
+8. **预览本卡(owner-preview)**:专用 owner-only 端点,以 `cardOwnerId=self` + 卡当前 `visible_until` 跑 §3.2 两步计算,**不建 CardHolder 行**,结果与读者实际视图一致。
+9. 侧栏「收到的邀请卡」可搜索卡名或输入 8 位码;选中后主界面切到对应读者视图,再次点选则回自己的库。
+10. 标签删除提供两种模式:(a) 删除此标签下所有笔记;(b) 保留笔记、批量移除此标签。两者都删除所有引用该标签的 Share 整条规则,禁止把交集/排除规则意外放宽。
+11. (Phase 2)AI 帮整理库、建议标签。
 
 ### 7.2 读者端 B(vanilla JS 网页)
 
 1. 手机号注册/登录(OTP)。
 2. 无任何卡 → 提示输入邀请码 → 载入对应卡。
 3. 已有 N 张卡 → "邀请卡列表页";底部"添加新的邀请卡" → 悬浮框输码 → 载入。
-4. 单张卡详情页:顶部一行 tab,第一个固定「最近更新」(默认),其余 = A 在此卡开放的标签(来源于当前 CardTag 池)。
+4. 单张卡详情页:顶部一行 tab,第一个固定「最近更新」(默认),其余 = 当前卡的 Share 显示名。
 5. 阅读页**零压力**:无点赞、无评论框、无已读回执、无"请回复"引导。
 
 ## 8. AI(Phase 2,brief §三)
@@ -178,11 +184,11 @@ WHERE n.user_id = :cardOwnerId
 
 ## 10. 构建顺序(按功能,非 TDD 仪式)
 
-- **M0 地基**:后端骨架(Hono)+ 本地 embedded-postgres + 8 张表 + 健康路由。A app 与 B web 共用的"大脑"。
+- **M0 地基**:后端骨架(Hono)+ 本地 embedded-postgres + 数据表 + 健康路由。A app 与 B web 共用的"大脑"。
 - **M1 登录**:后端发码/验码/会话 API(可插拔短信,dev 驱动打码到终端);A app(SwiftUI)与 B web(vanilla JS)各接登录。
 - **M2 A 写库**:A app 写/粘 Note、打标签、浏览/筛选/搜索自己的库;后端 Note/Tag CRUD(限本人)。
-- **M3 A 建卡 + 维护**:A app 拖标签进/出卡池、生成 4 位码、推进时间、开自动更新、作废/轮换、读者视角预览;后端 Card/CardTag/邀请码/owner-preview。
-- **M4 B 读**:后端两步权限查询 + §4 全部红线 + 兑换(限流、拒绝自兑换);B web 输码兑换 → 卡列表 → 卡详情(最近更新 + 标签 tab)、零压力阅读。
+- **M3 A 建卡 + 维护**:A app 组合 Share、生成 8 位码、推进时间、开自动更新、作废/轮换、读者视角预览;后端 Card/Share/ShareTag/邀请码/owner-preview。
+- **M4 B 读**:后端两步权限查询 + §4 全部红线 + 兑换(限流、拒绝自兑换);B web 输码兑换 → 卡列表 → 卡详情(最近更新 + Share tab)、零压力阅读。
 - **M5 收尾**:短信切阿里云、部署东京 ECS、A app 打包(模拟器→真机→TestFlight)。
 - **Phase 2(AI)**:后端接 Claude API,A app 用,帮整理库/建议标签。
 - **并行(用户 ops)**:订阅号 + 阿里云短信签名/模板审核 → 切 `aliyun`;买域名指向东京 ECS + HTTPS;Apple 开发者账号(A app 上架/TestFlight)。
@@ -192,10 +198,10 @@ WHERE n.user_id = :cardOwnerId
 ## 11. 仍开放/留待实现微调
 
 - 限流具体阈值与窗口(DB 原子计数实现细节)。
-- 标签 tab 内是否做时间线样式(MVP 先简单倒序列表)。
+- Share tab 内是否做时间线样式(MVP 先简单倒序列表)。
 - 长效会话具体时长与"记住此设备"。
 - display_name 是否必填、读者看到的"卡来自谁"如何呈现。
 
 ## 附:本轮对抗式审查并入的 16 条修订(可追溯)
 
-A1 两步查询契约(池外标签不过网络边界,critical)·A2 标签按授权显示(用户拍板)·A3 canonical 查询·A4 IDOR/CardHolder 前置·A5 禁跨请求缓存 V·A6 限流跨进程原子+全局上限·A7 ILIKE 参数化+自我作用域·A8 持卡人零回传(数据保留、MVP 不开面,用户拍板)·A9 TIMESTAMPTZ/单一 now()/边界含等·A10 OTP 单次/锁定/常量时间·A11 标签删除 RESTRICT·A12 updated_at 不进读者 payload·A13 拒绝自兑换+owner-preview·A14 确定性排序+keyset 分页·A15 分页每页重跑 V+tab 名来自当前池·A16 会话服务端可吊销+每请求查 CardHolder·A17 邀请码字符集定死+归一化·A18 文档化"无反向查询"。
+A1 两步查询契约(池外标签不过网络边界,critical)·A2 分享名按实际授权显示·A3 canonical 查询·A4 IDOR/CardHolder 前置·A5 禁跨请求缓存 V·A6 限流跨进程原子+全局上限·A7 ILIKE 参数化+自我作用域·A8 持卡人零回传(数据保留、MVP 不开面,用户拍板)·A9 TIMESTAMPTZ/单一 now()/边界含等·A10 OTP 单次/锁定/常量时间·A11 标签删除事务同步删除引用它的 Share,权限只收紧·A12 updated_at 不进读者 payload·A13 拒绝自兑换+owner-preview·A14 确定性排序+keyset 分页·A15 分页每页重跑 V+tab 名来自当前 Share·A16 会话服务端可吊销+每请求查 CardHolder·A17 邀请码字符集定死+归一化·A18 文档化"无反向查询"。

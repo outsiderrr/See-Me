@@ -3,22 +3,35 @@ import Foundation
 // Mirrors the backend JSON DTOs.
 
 struct AuthResponse: Codable { let ok: Bool; let token: String?; let user: APIUser? }
-struct APIUser: Codable, Identifiable { let id: String; let phone: String; let displayName: String? }
+struct APIUser: Codable, Identifiable {
+    let id: String
+    let phone: String
+    let displayName: String?
+    let createdAt: String?
+    let noteCount: Int?
+    let tagCount: Int?
+}
 
 struct TagRef: Codable, Identifiable, Hashable { let id: String; let name: String }
 
 struct TagDTO: Codable, Identifiable, Hashable {
     let id: String
     let name: String
+    let icon: String?
+    let isPinned: Bool?
+    let lastUsedAt: String?
     let noteCount: Int
     let shareCount: Int
 }
+
+struct NoteImageRef: Codable, Identifiable, Hashable { let id: String }
 
 struct NoteDTO: Codable, Identifiable {
     let id: String
     let body: String
     let createdAt: String
     let tags: [TagRef]
+    let images: [NoteImageRef]
 }
 
 struct ShareDTO: Codable, Identifiable {
@@ -45,6 +58,7 @@ struct ReaderNoteDTO: Codable, Identifiable {
     let body: String
     let createdAt: String
     let shares: [ShareRef]
+    let images: [NoteImageRef]
 }
 
 struct PreviewResponse: Codable {
@@ -54,6 +68,19 @@ struct PreviewResponse: Codable {
 }
 
 struct RotateResponse: Codable { let inviteCode: String }
+struct MeResponse: Codable { let user: APIUser }
+struct ReceivedCardDTO: Codable, Identifiable {
+    let id: String
+    let title: String
+    let ownerName: String
+}
+struct ReceivedCardsResponse: Codable { let cards: [ReceivedCardDTO] }
+struct ReaderHeaderResponse: Codable { let title: String; let tabs: [ShareRef] }
+struct ReaderNotesResponse: Codable {
+    let notes: [ReaderNoteDTO]
+    let nextCursor: String?
+}
+struct RedeemResponse: Codable { let ok: Bool; let cardId: String }
 
 /// Local UI model while A is composing a share inside the card builder.
 struct ShareDraft: Identifiable {

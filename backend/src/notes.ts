@@ -1,12 +1,22 @@
 import { db } from './db';
 import { assertTagsOwned } from './own';
 
-const withTags = { noteTags: { include: { tag: true } } } as const;
+const withTags = {
+  noteTags: { include: { tag: true } },
+  images: { orderBy: { sortOrder: 'asc' } },
+} as const;
 
-export async function createNote(userId: string, body: string, tagIds: string[] = []) {
+export type NewNoteImage = { mimeType: string; data: Uint8Array<ArrayBuffer> };
+
+export async function createNote(userId: string, body: string, tagIds: string[] = [], images: NewNoteImage[] = []) {
   await assertTagsOwned(userId, tagIds);
   return db.note.create({
-    data: { userId, body, noteTags: { create: [...new Set(tagIds)].map((tagId) => ({ tagId })) } },
+    data: {
+      userId,
+      body,
+      noteTags: { create: [...new Set(tagIds)].map((tagId) => ({ tagId })) },
+      images: { create: images.map((image, sortOrder) => ({ ...image, sortOrder })) },
+    },
     include: withTags,
   });
 }
@@ -45,6 +55,14 @@ export async function setNoteTags(userId: string, id: string, tagIds: string[]) 
   await db.$transaction([
     db.noteTag.deleteMany({ where: { noteId: id } }),
     db.noteTag.createMany({ data: unique.map((tagId) => ({ noteId: id, tagId })) }),
+    db.note.update({ where: { id }, data: { updatedAt: new Date() } }),
   ]);
   return db.note.findUnique({ where: { id }, include: withTags });
+}
+
+export async function ownImage(userId: string, imageId: string) {
+  return db.noteImage.findFirst({
+    where: { id: imageId, note: { userId } },
+    select: { data: true, mimeType: true },
+  });
 }

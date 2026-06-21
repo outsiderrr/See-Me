@@ -2,7 +2,7 @@ import { db } from '../db';
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
-    `TRUNCATE TABLE "card_holders","share_tags","shares","cards","note_tags","notes","tags","sessions","phone_otps","rate_limits","users" RESTART IDENTITY CASCADE;`,
+    `TRUNCATE TABLE "card_holders","share_tags","shares","cards","note_images","note_tags","notes","tags","sessions","phone_otps","rate_limits","users" RESTART IDENTITY CASCADE;`,
   );
 }
 
@@ -36,7 +36,7 @@ export async function makeCard(userId: string, visibleUntil: Date, shares: Share
     data: {
       userId,
       title: 'card',
-      inviteCode: `T${String(codeSeq++).padStart(3, '0')}`.slice(0, 4),
+      inviteCode: `TEST${String(codeSeq++).padStart(4, '0')}`.slice(0, 8),
       visibleUntil,
       shares: {
         create: shares.map((s, i) => ({

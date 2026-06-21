@@ -58,6 +58,10 @@ body {
 .feed { display: flex; flex-direction: column; gap: 14px; }
 .note { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px 16px; }
 .note-body { font-size: 16px; line-height: 1.85; white-space: pre-wrap; font-family: Georgia, "Songti SC", serif; }
+.note-body:empty { display: none; }
+.note-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+.note-images:empty { display: none; }
+.note-images img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 9px; }
 .note-meta { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 .date { color: var(--soft); font-size: 12.5px; }
 .chip { font-size: 12px; color: var(--accent); background: rgba(156, 122, 84, .1); padding: 3px 9px; border-radius: 999px; }

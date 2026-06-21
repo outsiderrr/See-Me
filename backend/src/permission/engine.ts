@@ -1,7 +1,13 @@
 import { Prisma } from '@prisma/client';
 import { db } from '../db';
 
-export type ReaderNote = { id: string; body: string; createdAt: Date; shares: { id: string; name: string }[] };
+export type ReaderNote = {
+  id: string;
+  body: string;
+  createdAt: Date;
+  shares: { id: string; name: string }[];
+  images: { id: string }[];
+};
 
 export interface ShareDef {
   id: string;
@@ -43,6 +49,7 @@ async function authorizingPairs(
   cardOwnerId: string,
   visibleUntil: Date,
   shares: ShareDef[],
+  noteId?: string,
 ): Promise<{ note_id: string; share_id: string; createdAtRaw: string }[]> {
   const valid = shares.filter((s) => s.include.length > 0);
   if (valid.length === 0) return [];
@@ -54,6 +61,7 @@ async function authorizingPairs(
       SELECT n.id AS note_id, ${s.id}::text AS share_id, ${Prisma.raw(RAW_TS)} AS "createdAtRaw"
       FROM notes n
       WHERE n.user_id = ${cardOwnerId}
+        ${noteId ? Prisma.sql`AND n.id = ${noteId}` : Prisma.empty}
         AND (${s.isAutoUpdate} OR n.created_at <= ${visibleUntil})
         AND (SELECT count(DISTINCT nt.tag_id) FROM note_tags nt
              WHERE nt.note_id = n.id AND nt.tag_id IN (${Prisma.join(s.include)})) = ${s.include.length}
@@ -101,14 +109,30 @@ export async function readerFeed(p: FeedParams): Promise<{ notes: ReaderNote[]; 
   // fetch bodies for the page only (column whitelist: no updated_at)
   const bodies = await db.note.findMany({
     where: { id: { in: page.map((p) => p.id) } },
-    select: { id: true, body: true, createdAt: true },
+    select: {
+      id: true,
+      body: true,
+      createdAt: true,
+      images: { orderBy: { sortOrder: 'asc' }, select: { id: true } },
+    },
   });
   const bodyMap = new Map(bodies.map((b) => [b.id, b]));
 
   const notes: ReaderNote[] = page.map((c) => {
     const b = bodyMap.get(c.id)!;
     const shareList = [...c.shareIds].map((sid) => ({ id: sid, name: shareName.get(sid) ?? '' })).filter((s) => s.name);
-    return { id: b.id, body: b.body, createdAt: b.createdAt, shares: shareList };
+    return { id: b.id, body: b.body, createdAt: b.createdAt, shares: shareList, images: b.images };
   });
   return { notes, nextCursor };
+}
+
+/** Re-run the same live predicate for a single note before serving protected media. */
+export async function readerCanAccessNote(
+  cardId: string,
+  cardOwnerId: string,
+  visibleUntil: Date,
+  noteId: string,
+): Promise<boolean> {
+  const shares = await loadShares(cardId);
+  return (await authorizingPairs(cardOwnerId, visibleUntil, shares, noteId)).length > 0;
 }

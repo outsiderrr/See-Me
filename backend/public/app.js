@@ -14,6 +14,14 @@ async function api(path, opts = {}) {
   return { status: res.status, body };
 }
 
+async function apiBlob(path) {
+  const headers = {};
+  const t = getToken();
+  if (t) headers.Authorization = 'Bearer ' + t;
+  const res = await fetch(path, { headers });
+  return res.ok ? res.blob() : null;
+}
+
 const app = () => document.getElementById('app');
 const el = (html) => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstElementChild; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -65,7 +73,7 @@ function renderLogin() {
 async function renderCards() {
   app().innerHTML = `
     <div class="screen">
-      <div class="topbar"><div class="title">我的邀请卡</div></div>
+      <div class="topbar"><div class="title">收到的邀请卡</div></div>
       <div id="list" class="list"></div>
       <div class="bottom"><button id="add" class="btn ghost">+ 添加邀请卡</button><button id="out" class="link">退出</button></div>
     </div>`;
@@ -81,7 +89,7 @@ async function renderCards() {
     )));
   }
   document.getElementById('add').onclick = async () => {
-    const code = prompt('输入邀请码');
+    const code = prompt('输入 8 位邀请码');
     if (!code) return;
     const rr = await api('/api/redeem', { method: 'POST', body: JSON.stringify({ code }) });
     if (rr.status === 200) renderCards();
@@ -123,14 +131,14 @@ async function renderCard(id) {
     feed.innerHTML = '';
     const notes = (r.body && r.body.notes) || [];
     if (notes.length === 0) { feed.innerHTML = '<div class="empty">这里还没有内容。</div>'; return; }
-    notes.forEach((n) => feed.appendChild(noteCard(n)));
+    notes.forEach((n) => feed.appendChild(noteCard(n, id)));
     let cursor = r.body.nextCursor;
     if (cursor) {
       const more = el('<button class="btn ghost more">加载更多</button>');
       more.onclick = async () => {
         const rr = await api('/api/read/' + id + '/notes' + (q ? q + '&' : '?') + 'cursor=' + encodeURIComponent(cursor));
         more.remove();
-        ((rr.body && rr.body.notes) || []).forEach((n) => feed.appendChild(noteCard(n)));
+        ((rr.body && rr.body.notes) || []).forEach((n) => feed.appendChild(noteCard(n, id)));
         cursor = rr.body && rr.body.nextCursor;
         if (cursor) feed.appendChild(more);
       };
@@ -141,11 +149,21 @@ async function renderCard(id) {
   loadFeed();
 }
 
-function noteCard(n) {
+function noteCard(n, cardId) {
   const d = new Date(n.createdAt);
   const ds = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
   const chips = (n.shares || []).map((s) => `<span class="chip">${esc(s.name)}</span>`).join('');
-  return el(`<article class="note"><div class="note-body">${esc(n.body)}</div><div class="note-meta"><span class="date">${ds}</span>${chips}</div></article>`);
+  const node = el(`<article class="note"><div class="note-body">${esc(n.body)}</div><div class="note-images"></div><div class="note-meta"><span class="date">${ds}</span>${chips}</div></article>`);
+  const grid = node.querySelector('.note-images');
+  (n.images || []).forEach(async (image) => {
+    const blob = await apiBlob(`/api/read/${encodeURIComponent(cardId)}/images/${encodeURIComponent(image.id)}`);
+    if (!blob) return;
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(blob);
+    img.onload = () => URL.revokeObjectURL(img.src);
+    grid.appendChild(img);
+  });
+  return node;
 }
 
 route();

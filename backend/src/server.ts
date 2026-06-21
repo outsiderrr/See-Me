@@ -36,9 +36,25 @@ export function buildApp() {
     const userId = c.get('userId')!;
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { id: true, phone: true, displayName: true },
+      select: {
+        id: true,
+        phone: true,
+        displayName: true,
+        createdAt: true,
+        _count: { select: { notes: true, tags: true } },
+      },
     });
-    return c.json({ user });
+    if (!user) return c.json({ error: 'not_found' }, 404);
+    return c.json({
+      user: {
+        id: user.id,
+        phone: user.phone,
+        displayName: user.displayName,
+        createdAt: user.createdAt,
+        noteCount: user._count.notes,
+        tagCount: user._count.tags,
+      },
+    });
   });
 
   // B reading web (vanilla JS) served from ./public; must be the last (catch-all) route.

@@ -31,15 +31,18 @@ model Note {
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   noteTags NoteTag[]
+  images   NoteImage[]
 
   @@index([userId, createdAt])
   @@map("notes")
 }
 
 model Tag {
-  id     String @id @default(cuid())
-  userId String @map("user_id")
-  name   String
+  id       String    @id @default(cuid())
+  userId   String    @map("user_id")
+  name     String
+  icon     String?
+  pinnedAt DateTime? @map("pinned_at") @db.Timestamptz(6)
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   noteTags  NoteTag[]
@@ -47,6 +50,19 @@ model Tag {
 
   @@unique([userId, name])
   @@map("tags")
+}
+
+model NoteImage {
+  id        String @id @default(cuid())
+  noteId    String @map("note_id")
+  mimeType  String @map("mime_type")
+  data      Bytes
+  sortOrder Int    @default(0) @map("sort_order")
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId, sortOrder])
+  @@map("note_images")
 }
 
 model NoteTag {
