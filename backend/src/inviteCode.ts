@@ -1,7 +1,8 @@
 import { randomInt } from 'node:crypto';
 import { db } from './db';
 
-/** 32-char alphabet, excludes look-alikes 0 O 1 I L (spec §5/A17). Space ~32^4 ≈ 1.05M. */
+/** 31-char alphabet (8 digits 2-9 + 23 letters; excludes look-alikes 0 O 1 I L).
+ *  Keyspace = 31^4 ≈ 923K — single-factor, so redeem MUST be multi-layer rate-limited. */
 export const INVITE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 
 export async function generateUniqueInviteCode(): Promise<string> {

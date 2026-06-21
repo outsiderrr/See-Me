@@ -10,11 +10,14 @@ export async function consume(
   limit: number,
   windowMs: number,
 ): Promise<{ allowed: boolean; count: number; retryAfterMs: number }> {
+  // count is clamped to limit+1 so a blocked key can't be inflated indefinitely
+  // (a sustained spray on a shared/global key must not 429 everyone forever).
   const rows = await db.$queryRaw<{ count: number; window_end: Date }[]>`
     INSERT INTO rate_limits (key, count, window_end)
     VALUES (${key}, 1, now() + (${windowMs}::text || ' milliseconds')::interval)
     ON CONFLICT (key) DO UPDATE SET
-      count = CASE WHEN rate_limits.window_end < now() THEN 1 ELSE rate_limits.count + 1 END,
+      count = CASE WHEN rate_limits.window_end < now() THEN 1
+                   ELSE LEAST(rate_limits.count + 1, ${limit} + 1) END,
       window_end = CASE WHEN rate_limits.window_end < now()
                         THEN now() + (${windowMs}::text || ' milliseconds')::interval
                         ELSE rate_limits.window_end END

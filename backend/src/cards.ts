@@ -1,29 +1,63 @@
-import type { Card, CardTag, Tag } from '@prisma/client';
 import { db } from './db';
 import { assertTagsOwned } from './own';
 import { generateUniqueInviteCode } from './inviteCode';
+import { readerFeed } from './permission/engine';
+import { cardShareTabs } from './permission/access';
 
-const withCardTags = { cardTags: { include: { tag: true } } } as const;
-export type CardWithTags = Card & { cardTags: (CardTag & { tag: Tag })[] };
+export type ShareInput = { name?: string; autoUpdate?: boolean; include: string[]; exclude?: string[] };
 
-/** Owner-side card DTO. NEVER includes holders (§4 #7: A sees no holder info in MVP). */
-export function cardDto(card: CardWithTags) {
+const cardInclude = {
+  shares: { include: { shareTags: { include: { tag: true } } }, orderBy: { createdAt: 'asc' } },
+} as const;
+
+type CardWithShares = NonNullable<Awaited<ReturnType<typeof getOwnCard>>>;
+
+export function cardDto(card: CardWithShares) {
   return {
     id: card.id,
     title: card.title,
     inviteCode: card.inviteCode,
     visibleUntil: card.visibleUntil,
     createdAt: card.createdAt,
-    tags: card.cardTags.map((ct) => ({ id: ct.tag.id, name: ct.tag.name, isAutoUpdate: ct.isAutoUpdate })),
+    shares: card.shares.map((s) => ({
+      id: s.id,
+      name: s.name,
+      isAutoUpdate: s.isAutoUpdate,
+      include: s.shareTags.filter((st) => !st.exclude).map((st) => ({ id: st.tag.id, name: st.tag.name })),
+      exclude: s.shareTags.filter((st) => st.exclude).map((st) => ({ id: st.tag.id, name: st.tag.name })),
+    })),
   };
 }
 
-export async function createCard(
-  userId: string,
-  title: string,
-  tags: { tagId: string; autoUpdate?: boolean }[],
-): Promise<CardWithTags> {
-  await assertTagsOwned(userId, tags.map((t) => t.tagId));
+async function tagNames(tagIds: string[]): Promise<Map<string, string>> {
+  const tags = await db.tag.findMany({ where: { id: { in: tagIds } }, select: { id: true, name: true } });
+  return new Map(tags.map((t) => [t.id, t.name]));
+}
+
+function defaultShareName(include: string[], exclude: string[], names: Map<string, string>): string {
+  const inc = include.map((id) => names.get(id) ?? '?').join('∩');
+  const exc = exclude.length ? ' −' + exclude.map((id) => names.get(id) ?? '?').join(',') : '';
+  return inc + exc;
+}
+
+async function validateShares(userId: string, shares: ShareInput[]): Promise<void> {
+  for (const s of shares) {
+    if (!Array.isArray(s.include) || s.include.length === 0) throw new Error('share_needs_include');
+  }
+  const all = [...new Set(shares.flatMap((s) => [...s.include, ...(s.exclude ?? [])]))];
+  await assertTagsOwned(userId, all);
+}
+
+function shareTagRows(input: ShareInput) {
+  return [
+    ...input.include.map((tagId) => ({ tagId, exclude: false })),
+    ...(input.exclude ?? []).map((tagId) => ({ tagId, exclude: true })),
+  ];
+}
+
+export async function createCard(userId: string, title: string, shares: ShareInput[]) {
+  await validateShares(userId, shares);
+  const names = await tagNames([...new Set(shares.flatMap((s) => [...s.include, ...(s.exclude ?? [])]))]);
   const inviteCode = await generateUniqueInviteCode();
   return db.card.create({
     data: {
@@ -31,59 +65,28 @@ export async function createCard(
       title,
       inviteCode,
       visibleUntil: new Date(),
-      cardTags: { create: tags.map((t) => ({ tagId: t.tagId, isAutoUpdate: !!t.autoUpdate })) },
+      shares: {
+        create: shares.map((s) => ({
+          name: s.name?.trim() || defaultShareName(s.include, s.exclude ?? [], names),
+          isAutoUpdate: !!s.autoUpdate,
+          shareTags: { create: shareTagRows(s) },
+        })),
+      },
     },
-    include: withCardTags,
+    include: cardInclude,
   });
 }
 
-export async function listCards(userId: string): Promise<CardWithTags[]> {
-  return db.card.findMany({ where: { userId }, include: withCardTags, orderBy: { createdAt: 'desc' } });
+export async function listCards(userId: string) {
+  return db.card.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, include: cardInclude });
 }
 
-export async function getOwnCard(userId: string, cardId: string): Promise<CardWithTags | null> {
-  return db.card.findFirst({ where: { id: cardId, userId }, include: withCardTags });
+export async function getOwnCard(userId: string, cardId: string) {
+  return db.card.findFirst({ where: { id: cardId, userId }, include: cardInclude });
 }
 
 export async function advanceTime(userId: string, cardId: string): Promise<boolean> {
   const r = await db.card.updateMany({ where: { id: cardId, userId }, data: { visibleUntil: new Date() } });
-  return r.count > 0;
-}
-
-export async function addCardTag(
-  userId: string,
-  cardId: string,
-  tagId: string,
-  autoUpdate: boolean,
-): Promise<{ ok: boolean; reason?: 'not_found' }> {
-  const card = await db.card.findFirst({ where: { id: cardId, userId }, select: { id: true } });
-  if (!card) return { ok: false, reason: 'not_found' };
-  await assertTagsOwned(userId, [tagId]);
-  await db.cardTag.upsert({
-    where: { cardId_tagId: { cardId, tagId } },
-    create: { cardId, tagId, isAutoUpdate: autoUpdate },
-    update: { isAutoUpdate: autoUpdate },
-  });
-  return { ok: true };
-}
-
-/** Remove a tag from the pool. Holders silently lose any notes only that tag authorized (§4). */
-export async function removeCardTag(userId: string, cardId: string, tagId: string): Promise<boolean> {
-  const card = await db.card.findFirst({ where: { id: cardId, userId }, select: { id: true } });
-  if (!card) return false;
-  await db.cardTag.deleteMany({ where: { cardId, tagId } });
-  return true;
-}
-
-export async function setCardTagAuto(
-  userId: string,
-  cardId: string,
-  tagId: string,
-  autoUpdate: boolean,
-): Promise<boolean> {
-  const card = await db.card.findFirst({ where: { id: cardId, userId }, select: { id: true } });
-  if (!card) return false;
-  const r = await db.cardTag.updateMany({ where: { cardId, tagId }, data: { isAutoUpdate: autoUpdate } });
   return r.count > 0;
 }
 
@@ -93,4 +96,95 @@ export async function rotateCode(userId: string, cardId: string): Promise<string
   const inviteCode = await generateUniqueInviteCode();
   await db.card.update({ where: { id: cardId }, data: { inviteCode } });
   return inviteCode;
+}
+
+async function ownsCard(userId: string, cardId: string): Promise<boolean> {
+  return !!(await db.card.findFirst({ where: { id: cardId, userId }, select: { id: true } }));
+}
+async function ownsShare(userId: string, cardId: string, shareId: string): Promise<boolean> {
+  return !!(await db.share.findFirst({ where: { id: shareId, cardId, card: { userId } }, select: { id: true } }));
+}
+
+export async function addShare(
+  userId: string,
+  cardId: string,
+  input: ShareInput,
+): Promise<{ ok: boolean; reason?: 'not_found' | 'needs_include' | 'tag_not_owned' }> {
+  if (!(await ownsCard(userId, cardId))) return { ok: false, reason: 'not_found' };
+  try {
+    await validateShares(userId, [input]);
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message === 'share_needs_include' ? 'needs_include' : 'tag_not_owned' };
+  }
+  const names = await tagNames([...input.include, ...(input.exclude ?? [])]);
+  await db.share.create({
+    data: {
+      cardId,
+      name: input.name?.trim() || defaultShareName(input.include, input.exclude ?? [], names),
+      isAutoUpdate: !!input.autoUpdate,
+      shareTags: { create: shareTagRows(input) },
+    },
+  });
+  return { ok: true };
+}
+
+export async function updateShare(
+  userId: string,
+  cardId: string,
+  shareId: string,
+  patch: { name?: string; autoUpdate?: boolean },
+): Promise<boolean> {
+  if (!(await ownsShare(userId, cardId, shareId))) return false;
+  await db.share.update({
+    where: { id: shareId },
+    data: {
+      ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
+      ...(patch.autoUpdate !== undefined ? { isAutoUpdate: patch.autoUpdate } : {}),
+    },
+  });
+  return true;
+}
+
+export async function setShareTags(
+  userId: string,
+  cardId: string,
+  shareId: string,
+  include: string[],
+  exclude: string[],
+): Promise<{ ok: boolean; reason?: 'not_found' | 'needs_include' | 'tag_not_owned' }> {
+  if (!(await ownsShare(userId, cardId, shareId))) return { ok: false, reason: 'not_found' };
+  if (include.length === 0) return { ok: false, reason: 'needs_include' };
+  try {
+    await assertTagsOwned(userId, [...new Set([...include, ...exclude])]);
+  } catch {
+    return { ok: false, reason: 'tag_not_owned' };
+  }
+  await db.$transaction([
+    db.shareTag.deleteMany({ where: { shareId } }),
+    db.shareTag.createMany({
+      data: [
+        ...include.map((tagId) => ({ shareId, tagId, exclude: false })),
+        ...exclude.map((tagId) => ({ shareId, tagId, exclude: true })),
+      ],
+    }),
+  ]);
+  return { ok: true };
+}
+
+/** Remove a share (silent revoke for holders). */
+export async function removeShare(userId: string, cardId: string, shareId: string): Promise<boolean> {
+  if (!(await ownsShare(userId, cardId, shareId))) return false;
+  await db.share.delete({ where: { id: shareId } });
+  return true;
+}
+
+/** Owner-preview: A sees exactly what a holder sees right now (no CardHolder created). */
+export async function ownerPreview(userId: string, cardId: string) {
+  const card = await db.card.findFirst({ where: { id: cardId, userId } });
+  if (!card) return null;
+  const [tabs, feed] = await Promise.all([
+    cardShareTabs(card.id),
+    readerFeed({ cardId: card.id, cardOwnerId: userId, visibleUntil: card.visibleUntil, limit: 50 }),
+  ]);
+  return { title: card.title, tabs, notes: feed.notes };
 }

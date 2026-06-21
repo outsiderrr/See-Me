@@ -41,9 +41,9 @@ model Tag {
   userId String @map("user_id")
   name   String
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  noteTags NoteTag[]
-  cardTags CardTag[]
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noteTags  NoteTag[]
+  shareTags ShareTag[]
 
   @@unique([userId, name])
   @@map("tags")
@@ -68,23 +68,39 @@ model Card {
   inviteCode   String   @unique @map("invite_code")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cardTags CardTag[]
-  holders  CardHolder[]
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shares  Share[]
+  holders CardHolder[]
 
   @@map("cards")
 }
 
-model CardTag {
-  cardId       String  @map("card_id")
-  tagId        String  @map("tag_id")
-  isAutoUpdate Boolean @default(false) @map("is_auto_update")
+// A "share" = one shareable rule inside a card. The reader sees it as a tab/chip
+// under `name`. A note matches a share iff it has ALL of the share's include tags
+// AND NONE of its exclude tags (spec §3: intersection + exclusion).
+model Share {
+  id           String   @id @default(cuid())
+  cardId       String   @map("card_id")
+  name         String
+  isAutoUpdate Boolean  @default(false) @map("is_auto_update")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  card      Card       @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  shareTags ShareTag[]
 
-  @@id([cardId, tagId])
-  @@map("card_tags")
+  @@map("shares")
+}
+
+model ShareTag {
+  shareId String  @map("share_id")
+  tagId   String  @map("tag_id")
+  exclude Boolean @default(false) // false = include (AND), true = exclude (NOT)
+
+  share Share @relation(fields: [shareId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([shareId, tagId])
+  @@map("share_tags")
 }
 
 model CardHolder {

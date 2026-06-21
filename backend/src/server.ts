@@ -8,9 +8,15 @@ import { authRoutes } from './routes/auth';
 import { noteRoutes } from './routes/notes';
 import { tagRoutes } from './routes/tags';
 import { cardRoutes } from './routes/cards';
+import { readerRoutes } from './routes/reader';
 
 export function buildApp() {
   const app = new Hono<AuthVars>();
+
+  app.onError((err, c) => {
+    console.error('[see-me] unhandled error:', err);
+    return c.json({ error: 'internal' }, 500);
+  });
 
   app.use('*', withUser);
 
@@ -23,6 +29,7 @@ export function buildApp() {
   app.route('/api/notes', noteRoutes);
   app.route('/api/tags', tagRoutes);
   app.route('/api/cards', cardRoutes);
+  app.route('/api', readerRoutes);
 
   app.get('/api/me', requireAuth, async (c) => {
     const userId = c.get('userId')!;
