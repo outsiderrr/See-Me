@@ -1,7 +1,13 @@
-# See Me — MVP 技术设计 (v3,平台形态定稿)
+# See Me — MVP 技术设计 (v4,分享模型 = 交集+排除)
 
-> 状态:设计已与用户确认 + 权限模型经 4 路对抗式审查加固
+> 状态:设计已与用户确认 + 权限模型经 4 路对抗式审查加固;后端 + B 网页已实现并验证
 > 日期:2026-06-21
+> v4 变更(分享模型重做):卡的授权单位从「标签并集」改为「**分享(Share)**」。一个分享 =
+>   `必含标签(AND) + 排除标签(NOT)` + 显示名 + 是否自动更新;一条 note 经某分享授权 ⟺
+>   含该分享全部必含标签 ∧ 不含任何排除标签 ∧(分享自动更新 或 note ≤ 截止点)。卡 = 各分享的并集。
+>   读者看到的 tab/chip 是**分享显示名**,构成它的标签永不外泄。原「并集模型」= 每个分享只有 1 个必含标签。
+>   数据层 `CardTag` → `Share` + `ShareTag`。并入实现期对抗式审查的修订(游标 µs 精度、畸形游标不崩、
+>   兑换多层限流 per-user+per-IP+global、兑换不暴露卡存在性、限流计数钳制、邀请码空间实为 31^4≈923K)。
 > v2 变更:并入 16 条审查修订(详见 §3–§6 红线)。两处产品语义经用户拍板:
 > (1) 标签 tab/chip 按「经由该标签授权」显示(非全局 V 过滤);
 > (2) 持卡人信息数据层保留、MVP 产品层 A 不可见。
@@ -44,8 +50,9 @@
 | **Note** | id, user_id(作者=A), body, created_at(**TIMESTAMPTZ**), updated_at | `created_at`=录入时刻,可见性时间判断用它;编辑改 updated_at 不改 created_at |
 | **Tag** | id, user_id, name, unique(user_id,name) | |
 | **NoteTag** | note_id, tag_id, PK(note_id,tag_id);**FK→Tag ON DELETE RESTRICT** | 多对多 |
-| **Card** | id, user_id(主人=A), title, visible_until(**TIMESTAMPTZ**,默认=created_at), invite_code(唯一,归一化大写存储), created_at | |
-| **CardTag** | card_id, tag_id, is_auto_update(默认 false), PK(card_id,tag_id);**FK→Tag ON DELETE RESTRICT** | 池子里的标签 + 每个是否自动更新 |
+| **Card** | id, user_id(主人=A), title, visible_until(**TIMESTAMPTZ**,默认=created_at), invite_code(唯一,归一化大写存储), created_at | 含一组 Share |
+| **Share** | id, card_id, name(读者可见的显示名), is_auto_update(默认 false), created_at | 卡里的一条「分享规则」;读者把它看作一个 tab |
+| **ShareTag** | share_id, tag_id, exclude(false=必含/AND,true=排除/NOT), PK(share_id,tag_id);**FK→Tag ON DELETE RESTRICT** | 分享的标签;一个分享需 ≥1 个必含标签 |
 | **CardHolder** | id, card_id, user_id(读者 B), redeemed_at, unique(card_id,user_id) | B 输码后的绑定。**数据保留**(含经 User 关联的手机号),供未来取证;**MVP 任何面向 A 的响应都不暴露**(见 §4 红线 #7) |
 | **PhoneOtp** | **phone(PK)**, code_hash, expires_at, attempts, consumed | 单条有效 OTP/手机号;单次使用 |
 | **Session** | id, user_id, expires_at, revoked | **服务端可吊销**;不用无状态不可吊销 JWT |
@@ -67,37 +74,33 @@
 3. `:visibleUntil = Card.visible_until`,**每请求从库实时读取**。
 4. **禁止跨请求缓存/记忆化 V、visible_until 或池子**;若为性能引入缓存,移标签/改 visible_until 须同事务立即失效,失效失败按未命中回源。
 
-### 3.1 授权谓词(全局一致)
+### 3.1 授权谓词(分享语义,全局一致)
 
-> Note n 经标签 T **授权可见** ⟺ T 在卡 C 池子 ∧ n 打了 T ∧(**T 开自动更新** 或 **n.created_at ≤ visible_until**)。
-> Note n 可见(进入 V)⟺ 存在任一池内标签 T 对 n 授权。
+> Note n 经**分享 S** 授权 ⟺ n 含 S 的全部必含标签 ∧ n 不含 S 的任何排除标签 ∧(**S 自动更新** 或 **n.created_at ≤ visible_until**)。
+> Note n 可见(进入 V)⟺ 卡内存在任一分享 S 对 n 授权。
+> 读者看到的 chip / tab = **授权该 note 的分享显示名**集合;构成分享的标签名(必含、排除)绝不外泄。
 
-### 3.2 两步查询契约(强制)
+### 3.2 查询契约(强制)
 
-**STEP 1 — 可见 note 集(喂「最近更新」与各 tab 的列表)。绝不 JOIN 标签列进 SELECT(否则破坏 DISTINCT+LIMIT):**
+对卡内每个分享 S(必含集 I 非空、排除集 E、自动 a),求其授权的 (note, S) 对:
 
 ```sql
-SELECT DISTINCT n.id, n.created_at
+SELECT n.id AS note_id, :shareId::text AS share_id,
+       to_char(n.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_raw
 FROM notes n
-JOIN note_tags nt ON nt.note_id = n.id
-JOIN card_tags ct ON ct.tag_id = nt.tag_id AND ct.card_id = :cardId
 WHERE n.user_id = :cardOwnerId
-  AND (ct.is_auto_update = TRUE OR n.created_at <= :visibleUntil)
-ORDER BY n.created_at DESC, n.id DESC
-LIMIT :pageSize;  -- keyset 分页,cursor on (created_at,id)
+  AND (:auto OR n.created_at <= :visibleUntil)
+  AND (SELECT count(DISTINCT nt.tag_id) FROM note_tags nt
+       WHERE nt.note_id = n.id AND nt.tag_id IN (:includeTags)) = :includeCount
+  AND NOT EXISTS (SELECT 1 FROM note_tags nx          -- 仅当 E 非空
+                  WHERE nx.note_id = n.id AND nx.tag_id IN (:excludeTags));
 ```
 
-**STEP 2 — 每条可见 note 的「授权池内标签」(唯一喂 chip 的来源)。带授权谓词,故冻结标签不会挂到截止点后的 note 上:**
-
-```sql
-SELECT nt.note_id, t.id, t.name
-FROM note_tags nt
-JOIN notes n ON n.id = nt.note_id
-JOIN card_tags ct ON ct.tag_id = nt.tag_id AND ct.card_id = :cardId
-JOIN tags t ON t.id = nt.tag_id
-WHERE nt.note_id = ANY(:visibleNoteIds)
-  AND (ct.is_auto_update = TRUE OR n.created_at <= :visibleUntil);
-```
+各分享 `UNION ALL` → 全部授权对。然后:
+- **可见集 V** = 授权对里去重的 note;**最近更新** = V 按 `(created_at, id)` 倒序;**分享 tab S** = 被 S 授权的 note。
+- **chip** = 每条 note 被授权的分享显示名集合(只显示分享名)。
+- **分页**:`created_at_raw` 是 µs 全精度文本(规避 JS Date 毫秒截断丢数据);游标 = `created_at_raw + "_" + id`,按精确串比较切片;**畸形游标一律回首页,绝不崩**(配 `app.onError` 兜底)。
+- **读者 Note DTO 列白名单**:`{ id, body, created_at, 授权分享[] }` —— 不含 `updated_at`、不含任何标签名,池外/排除标签结构上不过网络边界。
 
 **读者 Note DTO 列白名单:`{ id, body, created_at, 授权标签[] }`。结构上不含 updated_at、不含池外标签——池外标签绝不过网络边界。**
 
