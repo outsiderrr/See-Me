@@ -73,9 +73,33 @@ final class APIClient: ObservableObject {
         return r.note
     }
 
-    // MARK: Cards (for the card-builder, next iteration)
+    // MARK: Cards
     func listCards() async throws -> [CardDTO] {
         let r: CardsResponse = try decode(try await request("/api/cards"))
         return r.cards
+    }
+    func cardDetail(id: String) async throws -> CardDTO {
+        let r: CardResponse = try decode(try await request("/api/cards/\(id)"))
+        return r.card
+    }
+    func createCard(title: String, shares: [[String: Any]]) async throws -> CardDTO {
+        let r: CardResponse = try decode(try await request("/api/cards", method: "POST", body: ["title": title, "shares": shares]))
+        return r.card
+    }
+    func advanceTime(cardId: String) async throws {
+        _ = try await request("/api/cards/\(cardId)/advance", method: "POST")
+    }
+    func rotateCode(cardId: String) async throws -> String {
+        let r: RotateResponse = try decode(try await request("/api/cards/\(cardId)/rotate-code", method: "POST"))
+        return r.inviteCode
+    }
+    func addShare(cardId: String, share: [String: Any]) async throws {
+        _ = try await request("/api/cards/\(cardId)/shares", method: "POST", body: share)
+    }
+    func removeShare(cardId: String, shareId: String) async throws {
+        _ = try await request("/api/cards/\(cardId)/shares/\(shareId)", method: "DELETE")
+    }
+    func ownerPreview(cardId: String) async throws -> PreviewResponse {
+        try decode(try await request("/api/cards/\(cardId)/preview"))
     }
 }

@@ -8,12 +8,23 @@ struct SeeMeApp: App {
         WindowGroup {
             Group {
                 if api.isLoggedIn {
-                    LibraryView()
+                    HomeView()
                 } else {
                     LoginView()
                 }
             }
             .environmentObject(api)
+        }
+    }
+}
+
+struct HomeView: View {
+    var body: some View {
+        TabView {
+            LibraryView()
+                .tabItem { Label("库", systemImage: "doc.text") }
+            CardsView()
+                .tabItem { Label("卡", systemImage: "person.crop.rectangle.stack") }
         }
     }
 }
