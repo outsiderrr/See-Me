@@ -1,0 +1,6 @@
+build/
+DerivedData/
+SeeMe.xcodeproj/
+*.png
+*.xcuserstate
+.DS_Store

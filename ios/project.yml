@@ -1,0 +1,29 @@
+name: SeeMe
+options:
+  bundleIdPrefix: com.seeme
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  SeeMe:
+    type: application
+    platform: iOS
+    sources:
+      - SeeMe
+    info:
+      path: SeeMe/Info.plist
+      properties:
+        CFBundleDisplayName: See Me
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.seeme.app
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGNING_ALLOWED: "NO"
