@@ -1,10 +1,13 @@
-# See Me — MVP 技术设计 (v2,已过对抗式审查加固)
+# See Me — MVP 技术设计 (v3,平台形态定稿)
 
-> 状态:设计已与用户确认 + 权限模型经 4 路对抗式审查加固,待用户最终评审
+> 状态:设计已与用户确认 + 权限模型经 4 路对抗式审查加固
 > 日期:2026-06-21
 > v2 变更:并入 16 条审查修订(详见 §3–§6 红线)。两处产品语义经用户拍板:
 > (1) 标签 tab/chip 按「经由该标签授权」显示(非全局 V 过滤);
 > (2) 持卡人信息数据层保留、MVP 产品层 A 不可见。
+> v3 变更:平台形态定稿 = A 端 SwiftUI 原生 iOS + B 端 vanilla JS 网页 + 后端 Hono(Node/TS)+ Postgres(东京 ECS)。
+> 产品/数据/权限语义(§2–§9)与端无关,全部不变;仅 §1 技术栈、§10 构建顺序按新架构改写。
+> 方法论:按产品功能直接推进(用户指定,不走 TDD/多 agent 评审仪式;权限引擎保留针对性测试)。
 
 ## 0. 核心假设(产品成败全看它)
 
@@ -12,12 +15,17 @@
 
 一句话定位:一个**没有压力的、可分组授权的朋友圈**。A 把想被了解的那部分自己写进个人文本库,用标签控制谁能看哪些内容;B 在自己好奇时主动来看——不推送、不通知、无点赞评论、读者无回应义务。
 
-## 1. 技术栈与部署
+## 1. 技术栈与架构(三块)
 
-- **Next.js 全栈**(React + 服务端,单一 TypeScript 代码库)。SSR 助国内首屏。
-- **PostgreSQL**。**Docker Compose**(app + postgres)+ **Nginx** 反代 + **Let's Encrypt** HTTPS。
-- 自托管在用户**东京阿里云 ECS(8G)**:免 ICP 备案;东京↔大陆延迟约 30–80ms,可接受;天然保留海外推广空间。
+延续用户已验证的「Swift 原生前端 + JS 后端 + 原生 DOM 网页」模式:
+
+- **A 端(写作者)= SwiftUI 原生 iOS**:纯 Swift,标准 Xcode 工程,无 JS 桥接。拖拽建卡用 SwiftUI `.draggable`/`.dropDestination`。MVP 先 iOS-only(写作者人少);Android 留待以后。
+- **B 端(读者)= vanilla JS 网页**:原生 DOM、无框架,零安装,手机浏览器打开即读。由后端直接托管静态页。
+- **后端 = Node + Hono(TypeScript)+ PostgreSQL**:承载 A app 与 B web 共用的 JSON API(数据模型、权限引擎、登录、邀请码)+ 托管 B 阅读页。
+  - **部署**:东京阿里云 ECS(8G),Docker Compose(app + postgres)+ Nginx 反代 + Let's Encrypt HTTPS。免 ICP 备案;东京↔大陆 ~30–80ms;保留海外推广空间。
+  - **本地开发**:`embedded-postgres`(真 PG、免 Docker、不动系统);生产用 Docker。
 - **短信发送 = 可插拔接口**:`dev` 驱动(码打日志,开发不阻塞)/ `aliyun` 驱动(真实)。
+- **客户端无共享代码**(Swift vs JS),只共享 JSON API 契约;后端是唯一真相源,权限只在后端算。
 
 ### 1.1 短信与备案(澄清)
 
@@ -136,7 +144,7 @@ WHERE nt.note_id = ANY(:visibleNoteIds)
 
 ## 7. 用户流程
 
-### 7.1 写作端 A(MVP 主干)
+### 7.1 写作端 A(SwiftUI iOS app)
 
 1. 手机号注册/登录(OTP)。
 2. 新建或粘贴 Note。
@@ -147,7 +155,7 @@ WHERE nt.note_id = ANY(:visibleNoteIds)
 7. **预览本卡(owner-preview)**:专用 owner-only 端点,以 `cardOwnerId=self` + 卡当前 `visible_until` 跑 §3.2 两步计算,**不建 CardHolder 行**,结果与读者实际视图一致。
 8. (Phase 2)AI 帮整理库、建议标签。
 
-### 7.2 读者端 B
+### 7.2 读者端 B(vanilla JS 网页)
 
 1. 手机号注册/登录(OTP)。
 2. 无任何卡 → 提示输入邀请码 → 载入对应卡。
@@ -165,11 +173,18 @@ WHERE nt.note_id = ANY(:visibleNoteIds)
 
 读者侧 AI 摘要/问答;人格分析/诊断/关系匹配;给读者的通知/消息流/"卡有更新"提醒(默认静默);逐条审阅/发送前审核;公开卡免注册查看;社交广场/推荐/陌生人匹配/复杂多层级权限/增长裂变/会员;第三方平台自动同步导入;**per-note 反向可见性查询**(§4 #8);**A 端持卡人可见面**(§4 #7,数据保留、面后做)。
 
-## 10. 构建顺序
+## 10. 构建顺序(按功能,非 TDD 仪式)
 
-- **Phase 1(主干)**:A 注册→写 Note→打标签→建卡→出 4 位码;B 注册→输码→读(含 §3 两步查询 + 前置校验 + §4 全部红线 + §5 限流)。短信用 `dev` 驱动。
-- **Phase 2(AI)**:A 端库整理/标签建议,接 Claude API。
-- **并行(用户 ops)**:订阅号 + 阿里云短信签名/模板审核 → 切 `aliyun`;买域名指向东京 ECS + HTTPS。
+- **M0 地基**:后端骨架(Hono)+ 本地 embedded-postgres + 8 张表 + 健康路由。A app 与 B web 共用的"大脑"。
+- **M1 登录**:后端发码/验码/会话 API(可插拔短信,dev 驱动打码到终端);A app(SwiftUI)与 B web(vanilla JS)各接登录。
+- **M2 A 写库**:A app 写/粘 Note、打标签、浏览/筛选/搜索自己的库;后端 Note/Tag CRUD(限本人)。
+- **M3 A 建卡 + 维护**:A app 拖标签进/出卡池、生成 4 位码、推进时间、开自动更新、作废/轮换、读者视角预览;后端 Card/CardTag/邀请码/owner-preview。
+- **M4 B 读**:后端两步权限查询 + §4 全部红线 + 兑换(限流、拒绝自兑换);B web 输码兑换 → 卡列表 → 卡详情(最近更新 + 标签 tab)、零压力阅读。
+- **M5 收尾**:短信切阿里云、部署东京 ECS、A app 打包(模拟器→真机→TestFlight)。
+- **Phase 2(AI)**:后端接 Claude API,A app 用,帮整理库/建议标签。
+- **并行(用户 ops)**:订阅号 + 阿里云短信签名/模板审核 → 切 `aliyun`;买域名指向东京 ECS + HTTPS;Apple 开发者账号(A app 上架/TestFlight)。
+
+> 方法论:按产品功能/效果直接推进(用户指定,不走 TDD/多 agent 评审仪式)。例外:权限引擎(防泄漏)保留针对性测试,因为静默泄露隐私是产品唯一输不起的失败。
 
 ## 11. 仍开放/留待实现微调
 
