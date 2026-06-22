@@ -25,8 +25,9 @@ enum DirectionA {
     static func screen(_ key: String) -> some View {
         switch key {
         case "library":     A_Library()
-        case "sidebar":     A_Sidebar()
-        case "sidebarcard": A_Sidebar(selectedCard: true)
+        case "sidebar":     A_Sidebar(mode: .ownCollapsed)
+        case "sidebarcards":A_Sidebar(mode: .ownExpanded)
+        case "sidebarcard": A_Sidebar(mode: .cardSelected)
         case "compose":     A_Compose(state: .collapsed)
         case "composeopen": A_Compose(state: .expanded)
         case "composetags": A_Compose(state: .tags)
@@ -167,7 +168,11 @@ private struct A_Library: View {
 // MARK: Sidebar
 
 private struct A_Sidebar: View {
-    var selectedCard = false
+    enum Mode { case ownCollapsed, ownExpanded, cardSelected }
+    var mode: Mode = .ownCollapsed
+
+    private var readingCard: Bool { mode == .cardSelected }
+    private var listExpanded: Bool { mode == .ownExpanded }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -189,13 +194,11 @@ private struct A_Sidebar: View {
 
                     Rectangle().fill(A.rule).frame(height: 1).padding(.vertical, 22)
 
-                    navRow("全部笔记", active: !selectedCard)
+                    navRow("全部笔记", active: !readingCard)
 
-                    sectionTitle("收到的邀请卡").padding(.top, 26)
-                    searchField.padding(.top, 12)
-                    receivedRow(owner: Sample.readerOwner, title: Sample.readerCardTitle, selected: selectedCard)
+                    receivedSection.padding(.top, 26)
 
-                    if selectedCard {
+                    if readingCard {
                         // The card's own categories replace the tag index — same
                         // place, same role. These are Share display names, not
                         // the author's internal tags.
@@ -250,28 +253,58 @@ private struct A_Sidebar: View {
             Rectangle().fill(A.rule).frame(height: 1)
         }
     }
-    private func receivedRow(owner: String, title: String, selected: Bool) -> some View {
+    // Received-cards module. Collapsed by default → shows only the most
+    // recently read card; expand to pick from the full list.
+    private var receivedSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                sectionTitle("收到的邀请卡")
+                Spacer()
+                if Sample.receivedCards.count > 1 { expandControl }
+            }
+            if listExpanded {
+                searchField.padding(.top, 14)
+                VStack(spacing: 10) {
+                    ForEach(Array(Sample.receivedCards.enumerated()), id: \.element.id) { i, card in
+                        receivedRow(card: card, selected: false, recent: i == 0)
+                    }
+                }
+                .padding(.top, 14)
+            } else {
+                receivedRow(card: Sample.receivedCards[0], selected: readingCard, recent: false)
+                    .padding(.top, 14)
+            }
+        }
+    }
+    private var expandControl: some View {
+        HStack(spacing: 4) {
+            Text(listExpanded ? "收起" : "全部 \(Sample.receivedCards.count) 张").font(.system(size: 12.5))
+            Image(systemName: listExpanded ? "chevron.up" : "chevron.down").font(.system(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(A.clay)
+    }
+    private func receivedRow(card: ReceivedCardDTO, selected: Bool, recent: Bool) -> some View {
         HStack(spacing: 12) {
             Image(systemName: selected ? "envelope.open" : "envelope")
-                .font(.system(size: 15, weight: .light)).foregroundStyle(A.clay)
+                .font(.system(size: 15, weight: .light)).foregroundStyle(A.clay).frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
-                Text(owner).font(A.serif(17, .medium)).foregroundStyle(A.ink)        // who shared = primary
-                Text("分享 ·《\(title)》").font(.system(size: 11.5)).foregroundStyle(A.faint)
+                HStack(spacing: 6) {
+                    Text(card.ownerName).font(A.serif(17, .medium)).foregroundStyle(A.ink)   // who shared = primary
+                    if recent {
+                        Text("最近在读").font(.system(size: 10)).foregroundStyle(A.clay)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(A.clay.opacity(0.12)))
+                    }
+                }
+                Text("分享 ·《\(card.title)》").font(.system(size: 11.5)).foregroundStyle(A.faint)
             }
             Spacer()
             Image(systemName: selected ? "checkmark" : "chevron.right")
                 .font(.system(size: 11, weight: selected ? .semibold : .light)).foregroundStyle(A.clay)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12).padding(.top, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(selected ? A.clay.opacity(0.10) : .clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(selected ? A.clay.opacity(0.35) : .clear, lineWidth: 1)
-        )
-        .padding(.top, 14)
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(selected ? A.clay.opacity(0.10) : .clear))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(selected ? A.clay.opacity(0.35) : A.rule, lineWidth: 1))
     }
     private func categoryRow(_ name: String, active: Bool) -> some View {
         HStack(spacing: 12) {

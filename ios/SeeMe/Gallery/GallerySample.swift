@@ -77,6 +77,14 @@ enum Sample {
                       shares: [ShareRef(id: "s-child", name: "我们的童年")], images: []),
     ]
 
+    // MARK: Received cards (cards others shared with me). [0] = most recently
+    // read/loaded — the one shown when the sidebar list is collapsed.
+    static let receivedCards: [ReceivedCardDTO] = [
+        ReceivedCardDTO(id: "rc1", title: "给老朋友", ownerName: "林之"),
+        ReceivedCardDTO(id: "rc2", title: "写给在意的人", ownerName: "苏晓"),
+        ReceivedCardDTO(id: "rc3", title: "我的近况", ownerName: "陈默"),
+    ]
+
     // MARK: Own issued cards (A's "卡" management list)
     static let ownCards: [CardDTO] = [
         CardDTO(id: "c1", title: "给老朋友", inviteCode: "K7M2PQR9",
