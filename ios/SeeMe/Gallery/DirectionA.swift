@@ -26,6 +26,7 @@ enum DirectionA {
         switch key {
         case "library":     A_Library()
         case "sidebar":     A_Sidebar()
+        case "sidebarcard": A_Sidebar(selectedCard: true)
         case "compose":     A_Compose(state: .collapsed)
         case "composeopen": A_Compose(state: .expanded)
         case "composetags": A_Compose(state: .tags)
@@ -166,6 +167,8 @@ private struct A_Library: View {
 // MARK: Sidebar
 
 private struct A_Sidebar: View {
+    var selectedCard = false
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -186,14 +189,23 @@ private struct A_Sidebar: View {
 
                     Rectangle().fill(A.rule).frame(height: 1).padding(.vertical, 22)
 
-                    navRow("全部笔记", active: true)
+                    navRow("全部笔记", active: !selectedCard)
 
                     sectionTitle("收到的邀请卡").padding(.top, 26)
                     searchField.padding(.top, 12)
-                    receivedRow(title: Sample.readerCardTitle, owner: Sample.readerOwner)
+                    receivedRow(owner: Sample.readerOwner, title: Sample.readerCardTitle, selected: selectedCard)
 
-                    sectionTitle("标签").padding(.top, 28)
-                    ForEach(Sample.allTags) { tag in tagRow(tag) }
+                    if selectedCard {
+                        // The card's own categories replace the tag index — same
+                        // place, same role. These are Share display names, not
+                        // the author's internal tags.
+                        sectionTitle("这张卡里的分类").padding(.top, 28)
+                        categoryRow("最近更新", active: true)
+                        ForEach(Sample.readerTabs) { categoryRow($0.name, active: false) }
+                    } else {
+                        sectionTitle("标签").padding(.top, 28)
+                        ForEach(Sample.allTags) { tag in tagRow(tag) }
+                    }
                 }
                 .padding(.horizontal, 26)
                 .padding(.top, 14)
@@ -238,17 +250,37 @@ private struct A_Sidebar: View {
             Rectangle().fill(A.rule).frame(height: 1)
         }
     }
-    private func receivedRow(title: String, owner: String) -> some View {
+    private func receivedRow(owner: String, title: String, selected: Bool) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: "envelope").font(.system(size: 15, weight: .light)).foregroundStyle(A.clay)
+            Image(systemName: selected ? "envelope.open" : "envelope")
+                .font(.system(size: 15, weight: .light)).foregroundStyle(A.clay)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(A.serif(16, .medium)).foregroundStyle(A.ink)
-                Text("\(owner) 分享给你").font(.system(size: 11.5)).foregroundStyle(A.faint)
+                Text(owner).font(A.serif(17, .medium)).foregroundStyle(A.ink)        // who shared = primary
+                Text("分享 ·《\(title)》").font(.system(size: 11.5)).foregroundStyle(A.faint)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 11, weight: .light)).foregroundStyle(A.faint)
+            Image(systemName: selected ? "checkmark" : "chevron.right")
+                .font(.system(size: 11, weight: selected ? .semibold : .light)).foregroundStyle(A.clay)
         }
-        .padding(.top, 16)
+        .padding(.horizontal, 14).padding(.vertical, 12).padding(.top, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(selected ? A.clay.opacity(0.10) : .clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(selected ? A.clay.opacity(0.35) : .clear, lineWidth: 1)
+        )
+        .padding(.top, 14)
+    }
+    private func categoryRow(_ name: String, active: Bool) -> some View {
+        HStack(spacing: 12) {
+            Rectangle().fill(active ? A.clay : A.faint.opacity(0.5)).frame(width: 2, height: 16)
+            Text(name).font(A.serif(17, active ? .semibold : .regular)).foregroundStyle(active ? A.ink : A.soft)
+            Spacer()
+        }
+        .frame(height: 46)
+        .overlay(alignment: .bottom) { Rectangle().fill(A.rule).frame(height: 1) }
     }
     private func tagRow(_ tag: TagDTO) -> some View {
         HStack(spacing: 12) {
@@ -369,17 +401,13 @@ private struct A_Reader: View {
             .padding(.horizontal, 24).padding(.top, 6).padding(.bottom, 14)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    // letterhead
-                    Text("\(Sample.readerOwner) 分享给你")
-                        .font(.system(size: 12.5)).tracking(1).foregroundStyle(A.soft)
-                    Text(Sample.readerCardTitle)
-                        .font(A.serif(27, .semibold)).foregroundStyle(A.ink).padding(.top, 6)
-                    HStack(spacing: 20) {
-                        tab("最近更新", active: true)
-                        ForEach(Sample.readerTabs) { tab($0.name, active: false) }
-                    }
-                    .padding(.top, 18)
-                    Rectangle().fill(A.rule).frame(height: 1).padding(.top, 16).padding(.bottom, 24)
+                    // letterhead — who shared is primary; the card name is secondary.
+                    // No tab row: filtering lives in the left index, like the library.
+                    Text(Sample.readerOwner)
+                        .font(A.serif(28, .semibold)).foregroundStyle(A.ink)
+                    Text("分享给你 ·《\(Sample.readerCardTitle)》")
+                        .font(.system(size: 13)).foregroundStyle(A.soft).padding(.top, 5)
+                    Rectangle().fill(A.rule).frame(height: 1).padding(.top, 18).padding(.bottom, 24)
 
                     ForEach(Array(Sample.readerNotes.enumerated()), id: \.element.id) { i, note in
                         VStack(alignment: .leading, spacing: 10) {
@@ -400,13 +428,6 @@ private struct A_Reader: View {
             }
         }
         .galleryBackground(A.paper)
-    }
-    private func tab(_ t: String, active: Bool) -> some View {
-        VStack(spacing: 5) {
-            Text(t).font(A.serif(15, active ? .semibold : .regular)).foregroundStyle(active ? A.ink : A.faint)
-            Rectangle().fill(active ? A.clay : .clear).frame(height: 1.5)
-        }
-        .fixedSize()
     }
 }
 
