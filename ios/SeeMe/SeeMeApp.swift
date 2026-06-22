@@ -7,11 +7,21 @@ struct SeeMeApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
+                #if DEBUG
+                if let token = GalleryHost.tokenFromLaunchArgs() {
+                    GalleryHost(token: token)
+                } else if api.isLoggedIn {
+                    HomeView()
+                } else {
+                    LoginView()
+                }
+                #else
                 if api.isLoggedIn {
                     HomeView()
                 } else {
                     LoginView()
                 }
+                #endif
             }
             .environmentObject(api)
         }
