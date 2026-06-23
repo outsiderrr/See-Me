@@ -7,34 +7,62 @@ struct CardsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if cards.isEmpty {
-                    Text("还没有卡。右上角建一张:选标签、设交集/排除,出邀请码。")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(cards) { c in
-                    NavigationLink(value: c.id) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(c.title).font(.headline)
-                            Text("邀请码 \(c.inviteCode) · \(c.shares.count) 个分享")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("我发出的卡")
+                        .font(.system(size: 12.5, weight: .semibold)).tracking(1.5).foregroundStyle(Theme.soft)
+                        .padding(.bottom, 4)
+
+                    if cards.isEmpty {
+                        Text("还没有卡。下面新建一张：选标签、设交集 / 排除，出邀请码。")
+                            .font(Theme.serif(16)).foregroundStyle(Theme.soft)
+                            .padding(.vertical, 22)
                     }
+
+                    ForEach(cards) { c in
+                        NavigationLink(value: c.id) { cardRow(c) }
+                            .buttonStyle(.plain)
+                            .overlay(alignment: .bottom) { Hairline() }
+                    }
+
+                    Button { showNew = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "plus").font(.system(size: 14, weight: .light))
+                            Text("新建一张卡").font(Theme.serif(17))
+                        }
+                        .foregroundStyle(Theme.soft).padding(.top, 24)
+                    }
+                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, Theme.hPad)
+                .padding(.top, 8)
+                .padding(.bottom, 60)
             }
-            .navigationTitle("我的卡")
+            .paperBackground()
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { id in
                 CardDetailView(cardId: id) { await load() }
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showNew = true } label: { Image(systemName: "plus") }
-                }
             }
             .sheet(isPresented: $showNew) { NewCardView { await load() } }
             .task { await load() }
             .refreshable { await load() }
         }
+    }
+
+    private func cardRow(_ c: CardDTO) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(c.title).font(Theme.serif(20, .medium)).foregroundStyle(Theme.ink)
+            HStack(spacing: 10) {
+                Text(c.inviteCode)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced)).tracking(2).foregroundStyle(Theme.clay)
+                Text("·").foregroundStyle(Theme.faint)
+                Text("\(c.shares.count) 个分享").font(.system(size: 13)).foregroundStyle(Theme.soft)
+            }
+            if !c.shares.isEmpty { ClayTags(names: c.shares.map { $0.name }) }
+        }
+        .padding(.vertical, 22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     func load() async { cards = (try? await api.listCards()) ?? [] }

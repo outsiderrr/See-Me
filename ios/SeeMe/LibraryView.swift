@@ -1,26 +1,27 @@
 import SwiftUI
 import UIKit
 
-extension Color {
-    static let seeGreen = Color(red: 0.18, green: 0.58, blue: 0.37)
-    static let seeBlue = Color(red: 0.12, green: 0.52, blue: 0.88)
-    static let memoBackground = Color(uiColor: .systemGroupedBackground)
-    static let memoCard = Color(uiColor: .secondarySystemGroupedBackground)
-}
+// MARK: - Date helpers (zh_CN)
 
-func memoTime(_ iso: String) -> String {
-    let parser = ISO8601DateFormatter()
-    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let date = parser.date(from: iso) ?? {
-        let fallback = ISO8601DateFormatter()
-        fallback.formatOptions = [.withInternetDateTime]
-        return fallback.date(from: iso)
+private func parseISO(_ iso: String) -> Date? {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f.date(from: iso) ?? {
+        let g = ISO8601DateFormatter(); g.formatOptions = [.withInternetDateTime]
+        return g.date(from: iso)
     }()
-    guard let date else { return shortDate(iso) }
-    let output = DateFormatter()
-    output.dateFormat = "yyyy-MM-dd HH:mm"
-    return output.string(from: date)
 }
+private func fmt(_ iso: String, _ pattern: String) -> String {
+    guard let d = parseISO(iso) else { return shortDate(iso) }
+    let out = DateFormatter()
+    out.locale = Locale(identifier: "zh_CN")
+    out.dateFormat = pattern
+    return out.string(from: d)
+}
+private func memoClock(_ iso: String) -> String { fmt(iso, "HH:mm") }
+private func memoDay(_ iso: String) -> String { fmt(iso, "M月d日") }
+private func memoDayWeekday(_ iso: String) -> String { fmt(iso, "M月d日 EEEE") }
+private func memoDayKey(_ iso: String) -> String { fmt(iso, "yyyy-MM-dd") }
 
 struct LibraryView: View {
     private static var debugShowCompose: Bool {
@@ -35,185 +36,168 @@ struct LibraryView: View {
     @ObservedObject var store: LibraryStore
     @State private var showCompose = LibraryView.debugShowCompose
 
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.memoBackground.ignoresSafeArea()
+    private var ownGroups: [(String, [NoteDTO])] {
+        var order: [String] = []; var map: [String: [NoteDTO]] = [:]
+        for n in store.notes {
+            let k = memoDayKey(n.createdAt)
+            if map[k] == nil { order.append(k) }
+            map[k, default: []].append(n)
+        }
+        return order.map { (memoDayWeekday(map[$0]!.first!.createdAt), map[$0]!) }
+    }
 
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     contextHeader
                     if store.selectedCardId == nil {
-                        ownNotes
+                        ownStream
                     } else {
-                        receivedNotes
+                        readerStream
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 8)
-                .padding(.bottom, 96)
+                .padding(.horizontal, Theme.hPad)
+                .padding(.top, 6)
+                .padding(.bottom, 112)
             }
             .refreshable { await store.loadAll(api) }
 
             if store.selectedCardId == nil {
                 Button { showCompose = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 25, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 62, height: 62)
-                        .background(Color.seeGreen)
-                        .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-                        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(Theme.paper)
+                        .frame(width: 54, height: 54)
+                        .background(Circle().fill(Theme.ink))
                 }
-                .padding(.bottom, 18)
+                .padding(.trailing, 24)
+                .padding(.bottom, 28)
             }
         }
+        .paperBackground()
         .sheet(isPresented: $showCompose) {
             ComposeView {
                 await store.reloadOwn(api)
             }
-            .presentationDetents([.height(285), .large])
+            .presentationDetents([.height(300), .large])
             .presentationDragIndicator(.visible)
         }
     }
 
+    // MARK: Context header
+
     @ViewBuilder
     private var contextHeader: some View {
         if let card = store.selectedCard, let header = store.readerHeader {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(header.title).font(.headline)
-                        Text("\(card.ownerName) 分享给你")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button {
-                        Task { await store.showAllNotes(api) }
-                    } label: {
-                        Label("回到我的库", systemImage: "xmark.circle.fill")
-                            .font(.caption)
+            // Reader letterhead — who shared is primary; the card name secondary.
+            // No tab row: category filtering lives in the left index (sidebar).
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(card.ownerName).font(Theme.serif(27, .semibold)).foregroundStyle(Theme.ink)
+                    Text("分享给你 ·《\(header.title)》").font(.system(size: 13)).foregroundStyle(Theme.soft)
+                    if let active = header.tabs.first(where: { $0.id == store.activeShareId }) {
+                        Text("正在看 · \(active.name)").font(.system(size: 12)).foregroundStyle(Theme.clay).padding(.top, 2)
                     }
                 }
-                shareTabs(header.tabs)
+                Spacer()
+                Button { Task { await store.showAllNotes(api) } } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                        Text("我的库").font(.system(size: 12.5))
+                    }
+                    .foregroundStyle(Theme.clay)
+                }
             }
-            .padding(14)
-            .background(Color.memoCard)
-            .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            Hairline().padding(.top, 16).padding(.bottom, 22)
         } else if let active = store.tags.first(where: { $0.id == store.activeOwnTagId }) {
             HStack {
-                Text("\(active.icon ?? "#") \(active.name)")
-                    .font(.headline)
+                Text(active.icon?.isEmpty == false ? "\(active.icon!) \(active.name)" : active.name)
+                    .font(Theme.serif(22, .semibold)).foregroundStyle(Theme.ink)
                 Spacer()
-                Button("查看全部") {
-                    Task { await store.showAllNotes(api) }
+                Button { Task { await store.showAllNotes(api) } } label: {
+                    Text("全部笔记").font(.system(size: 12.5)).foregroundStyle(Theme.clay)
                 }
-                .font(.caption)
             }
-            .padding(.horizontal, 4)
+            Hairline().padding(.top, 14).padding(.bottom, 20)
         }
     }
 
-    private func shareTabs(_ tabs: [ShareRef]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                shareChip("最近更新", id: nil)
-                ForEach(tabs) { tab in shareChip(tab.name, id: tab.id) }
-            }
-        }
-    }
-
-    private func shareChip(_ title: String, id: String?) -> some View {
-        let selected = store.activeShareId == id
-        return Button {
-            Task { await store.showShare(id, api: api) }
-        } label: {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(selected ? Color.white : Color.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(selected ? Color.seeGreen : Color(uiColor: .tertiarySystemFill))
-                .clipShape(Capsule())
-        }
-    }
+    // MARK: Streams
 
     @ViewBuilder
-    private var ownNotes: some View {
+    private var ownStream: some View {
         if store.notes.isEmpty {
-            emptyState("还没有内容，点下方的 + 写第一条。")
-        }
-        ForEach(store.notes) { note in
-            OwnMemoCard(note: note)
+            emptyState("还没有内容，点右下角写第一条。")
+        } else {
+            ForEach(Array(ownGroups.enumerated()), id: \.offset) { gi, group in
+                dayHeader(group.0).padding(.top, gi == 0 ? 2 : 30).padding(.bottom, 16)
+                ForEach(Array(group.1.enumerated()), id: \.element.id) { i, note in
+                    JournalEntry(
+                        time: memoClock(note.createdAt),
+                        text: note.body,
+                        tagNames: note.tags.map { $0.name },
+                        imagePaths: note.images.map { "/api/notes/images/\($0.id)" }
+                    )
+                    if i < group.1.count - 1 { Hairline().padding(.vertical, 20) }
+                }
+            }
         }
     }
 
     @ViewBuilder
-    private var receivedNotes: some View {
+    private var readerStream: some View {
         if store.readerNotes.isEmpty {
-            emptyState("这个分享分类里还没有内容。")
+            emptyState("这个分类里还没有内容。")
+        } else {
+            ForEach(Array(store.readerNotes.enumerated()), id: \.element.id) { i, note in
+                JournalEntry(
+                    time: memoDay(note.createdAt),
+                    text: note.body,
+                    tagNames: note.shares.map(\.name),
+                    imagePaths: note.images.map { "/api/read/\(store.selectedCardId ?? "")/images/\($0.id)" }
+                )
+                if i < store.readerNotes.count - 1 { Hairline().padding(.vertical, 22) }
+            }
         }
-        ForEach(store.readerNotes) { note in
-            ReaderMemoCard(note: note, cardId: store.selectedCardId ?? "")
+    }
+
+    private func dayHeader(_ label: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(Theme.clay).frame(width: 4, height: 4)
+            Text(label).font(.system(size: 12.5, weight: .semibold)).tracking(1).foregroundStyle(Theme.soft)
         }
     }
 
     private func emptyState(_ text: String) -> some View {
         Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            .font(Theme.serif(16))
+            .foregroundStyle(Theme.soft)
             .frame(maxWidth: .infinity)
-            .padding(.top, 80)
+            .padding(.top, 90)
     }
 }
 
-struct OwnMemoCard: View {
-    let note: NoteDTO
+// MARK: - Journal entry (shared by own + reader)
 
-    var body: some View {
-        MemoCardShell(
-            time: memoTime(note.createdAt),
-            content: note.body,
-            chips: note.tags.map { "#\($0.name)" },
-            imagePaths: note.images.map { "/api/notes/images/\($0.id)" }
-        )
-    }
-}
-
-struct ReaderMemoCard: View {
-    let note: ReaderNoteDTO
-    let cardId: String
-
-    var body: some View {
-        MemoCardShell(
-            time: memoTime(note.createdAt),
-            content: note.body,
-            chips: note.shares.map(\.name),
-            imagePaths: note.images.map { "/api/read/\(cardId)/images/\($0.id)" }
-        )
-    }
-}
-
-struct MemoCardShell: View {
+struct JournalEntry: View {
     let time: String
-    let content: String
-    let chips: [String]
+    let text: String
+    let tagNames: [String]
     let imagePaths: [String]
 
-    var bodyView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            HStack {
-                Text(time)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(time).font(.system(size: 12, weight: .medium)).monospacedDigit().foregroundStyle(Theme.faint)
                 Spacer()
+                if !tagNames.isEmpty { ClayTags(names: tagNames) }
             }
-            if !chips.isEmpty {
-                FlexibleChipText(chips: chips)
-            }
-            if !content.isEmpty {
-                Text(content)
-                    .font(.system(size: 16))
-                    .lineSpacing(5)
+            if !text.isEmpty {
+                Text(text)
+                    .font(Theme.serif(17.5))
+                    .foregroundStyle(Theme.ink)
+                    .lineSpacing(7)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -222,27 +206,17 @@ struct MemoCardShell: View {
             }
         }
     }
-
-    var body: some View {
-        bodyView
-            .padding(16)
-            .background(Color.memoCard)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.primary.opacity(0.035), lineWidth: 1)
-            }
-    }
 }
 
-struct FlexibleChipText: View {
-    let chips: [String]
-
+struct ClayTags: View {
+    let names: [String]
     var body: some View {
-        Text(chips.joined(separator: "  "))
-            .font(.callout)
-            .foregroundStyle(Color.seeBlue)
-            .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 0) {
+            ForEach(Array(names.enumerated()), id: \.offset) { i, n in
+                if i > 0 { Text("·").foregroundStyle(Theme.faint).padding(.horizontal, 6) }
+                Text(n).font(.system(size: 12.5)).tracking(0.5).foregroundStyle(Theme.clay)
+            }
+        }
     }
 }
 
@@ -259,9 +233,10 @@ struct ProtectedImageGrid: View {
             ForEach(paths, id: \.self) { path in
                 ProtectedImage(path: path)
                     .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
         }
+        .padding(.top, 2)
     }
 }
 
@@ -272,7 +247,7 @@ struct ProtectedImage: View {
 
     var body: some View {
         ZStack {
-            Color.secondary.opacity(0.1)
+            Theme.rule
             if let image {
                 Image(uiImage: image)
                     .resizable()

@@ -2,13 +2,8 @@
 import SwiftUI
 import UIKit
 
-/// Builds a color that resolves differently in light vs dark, so every
-/// direction adapts to dark mode from one declaration.
-func dyn(_ light: Color, _ dark: Color) -> Color {
-    Color(uiColor: UIColor { trait in
-        trait.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
-    })
-}
+// `dyn(_:_:)` lives in Theme.swift (compiled in all configs) so the gallery and
+// the production app share one definition.
 
 extension View {
     /// Fills the whole window (incl. under the status bar) with `bg`, while

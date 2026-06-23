@@ -40,8 +40,16 @@ struct HomeView: View {
     @EnvironmentObject private var api: APIClient
     enum Section { case library, cards }
     @StateObject private var library = LibraryStore()
-    @State private var section: Section = .library
+    @State private var section: Section = HomeView.debugInitialSection
     @State private var sidebarOpen = HomeView.debugShowSidebar
+
+    private static var debugInitialSection: Section {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--section-cards") ? .cards : .library
+        #else
+        .library
+        #endif
+    }
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -87,39 +95,40 @@ struct HomeTopBar: View {
         ZStack {
             HStack {
                 Button(action: openSidebar) {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 21, weight: .medium))
-                        .frame(width: 42, height: 42)
+                    Image(systemName: "line.horizontal.3")
+                        .font(.system(size: 18, weight: .light))
+                        .foregroundStyle(Theme.soft)
+                        .frame(width: 38, height: 38)
                 }
                 .opacity(section == .library ? 1 : 0)
                 .disabled(section != .library)
                 Spacer()
-                Color.clear.frame(width: 42, height: 42)
+                Color.clear.frame(width: 38, height: 38)
             }
-            HStack(spacing: 4) {
+            HStack(spacing: 26) {
                 topChoice("库", value: .library)
                 topChoice("卡", value: .cards)
             }
-            .padding(4)
-            .background(Color.secondary.opacity(0.1))
-            .clipShape(Capsule())
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Color(uiColor: .systemBackground))
+        .padding(.horizontal, 24)
+        .padding(.top, 6)
+        .padding(.bottom, 12)
+        .background(Theme.paper)
     }
 
     private func topChoice(_ title: String, value: HomeView.Section) -> some View {
-        Button {
+        let active = section == value
+        return Button {
             section = value
         } label: {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(section == value ? Color.primary : Color.secondary)
-                .frame(width: 62)
-                .padding(.vertical, 7)
-                .background(section == value ? Color(uiColor: .secondarySystemBackground) : Color.clear)
-                .clipShape(Capsule())
+            VStack(spacing: 5) {
+                Text(title)
+                    .font(Theme.serif(18, active ? .semibold : .regular))
+                    .foregroundStyle(active ? Theme.ink : Theme.faint)
+                Rectangle()
+                    .fill(active ? Theme.clay : .clear)
+                    .frame(width: 16, height: 2)
+            }
         }
     }
 }
