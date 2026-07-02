@@ -145,9 +145,7 @@ struct LibrarySidebar: View {
                 searchField.padding(.top, 14)
                 VStack(spacing: 10) {
                     ForEach(filteredCards) { card in
-                        receivedRow(card: card,
-                                    selected: store.selectedCardId == card.id,
-                                    recent: store.receivedCards.first?.id == card.id) {
+                        receivedRow(card: card, selected: store.selectedCardId == card.id) {
                             Task { await store.toggleReceivedCard(card, api: api); close() }
                         }
                     }
@@ -159,7 +157,7 @@ struct LibrarySidebar: View {
                 }
                 .padding(.top, 14)
             } else if let card = collapsedCard {
-                receivedRow(card: card, selected: store.selectedCardId == card.id, recent: false) {
+                receivedRow(card: card, selected: store.selectedCardId == card.id) {
                     Task { await store.toggleReceivedCard(card, api: api); close() }
                 }
                 .padding(.top, 14)
@@ -179,20 +177,13 @@ struct LibrarySidebar: View {
         .buttonStyle(.plain)
     }
 
-    private func receivedRow(card: ReceivedCardDTO, selected: Bool, recent: Bool, action: @escaping () -> Void) -> some View {
+    private func receivedRow(card: ReceivedCardDTO, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: selected ? "envelope.open" : "envelope")
                     .font(.system(size: 15, weight: .light)).foregroundStyle(Theme.clay).frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(card.ownerName).font(Theme.serif(17, .medium)).foregroundStyle(Theme.ink)
-                        if recent {
-                            Text("最近在读").font(.system(size: 10)).foregroundStyle(Theme.clay)
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.clay.opacity(0.12)))
-                        }
-                    }
+                    Text(card.ownerName).font(Theme.serif(17, .medium)).foregroundStyle(Theme.ink)
                     Text("分享 ·《\(card.title)》").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
                 }
                 Spacer()

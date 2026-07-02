@@ -54,3 +54,16 @@ struct Hairline: View {
         Rectangle().fill(Theme.rule).frame(height: 1).padding(.leading, inset)
     }
 }
+
+extension View {
+    /// Small top-corner radius for the composer sheet — flomo-like: edge-to-edge,
+    /// shallow top corners, square flush bottom. (`presentationCornerRadius` is
+    /// iOS 16.4+; older systems keep the default radius.)
+    @ViewBuilder func composerSheetShape() -> some View {
+        if #available(iOS 16.4, *) {
+            presentationCornerRadius(8)
+        } else {
+            self
+        }
+    }
+}

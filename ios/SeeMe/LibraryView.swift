@@ -82,6 +82,7 @@ struct LibraryView: View {
             }
             .presentationDetents([.height(300), .large])
             .presentationDragIndicator(.visible)
+            .composerSheetShape()
         }
     }
 
