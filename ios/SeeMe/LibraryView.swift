@@ -195,11 +195,7 @@ struct JournalEntry: View {
                 if !tagNames.isEmpty { ClayTags(names: tagNames) }
             }
             if !text.isEmpty {
-                Text(text)
-                    .font(Theme.serif(17.5))
-                    .foregroundStyle(Theme.ink)
-                    .lineSpacing(7)
-                    .fixedSize(horizontal: false, vertical: true)
+                NoteBody(markdown: text)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if !imagePaths.isEmpty {

@@ -4,12 +4,18 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.0
 targets:
   SeeMe:
     type: application
     platform: iOS
     sources:
       - SeeMe
+    dependencies:
+      - package: MarkdownUI
     info:
       path: SeeMe/Info.plist
       properties:
