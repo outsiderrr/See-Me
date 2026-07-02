@@ -42,6 +42,7 @@ struct HomeView: View {
     @StateObject private var library = LibraryStore()
     @State private var section: Section = HomeView.debugInitialSection
     @State private var sidebarOpen = HomeView.debugShowSidebar
+    @State private var searchOpen = false
 
     private static var debugInitialSection: Section {
         #if DEBUG
@@ -54,11 +55,13 @@ struct HomeView: View {
     var body: some View {
         ZStack(alignment: .leading) {
             VStack(spacing: 0) {
-                HomeTopBar(section: $section) {
+                HomeTopBar(section: $section, showsSearch: library.selectedCardId == nil, openSidebar: {
                     withAnimation(.easeOut(duration: 0.22)) { sidebarOpen = true }
-                }
+                }, toggleSearch: {
+                    withAnimation(.easeOut(duration: 0.15)) { searchOpen.toggle() }
+                })
                 if section == .library {
-                    LibraryView(store: library)
+                    LibraryView(store: library, searchOpen: $searchOpen)
                 } else {
                     CardsView()
                 }
@@ -89,7 +92,9 @@ struct HomeView: View {
 
 struct HomeTopBar: View {
     @Binding var section: HomeView.Section
+    var showsSearch = true
     let openSidebar: () -> Void
+    let toggleSearch: () -> Void
 
     var body: some View {
         ZStack {
@@ -103,7 +108,14 @@ struct HomeTopBar: View {
                 .opacity(section == .library ? 1 : 0)
                 .disabled(section != .library)
                 Spacer()
-                Color.clear.frame(width: 38, height: 38)
+                Button(action: toggleSearch) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .light))
+                        .foregroundStyle(Theme.soft)
+                        .frame(width: 38, height: 38)
+                }
+                .opacity(section == .library && showsSearch ? 1 : 0)
+                .disabled(section != .library || !showsSearch)
             }
             HStack(spacing: 26) {
                 topChoice("库", value: .library)

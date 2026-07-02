@@ -34,7 +34,12 @@ struct LibraryView: View {
 
     @EnvironmentObject private var api: APIClient
     @ObservedObject var store: LibraryStore
+    @Binding var searchOpen: Bool
     @State private var showCompose = LibraryView.debugShowCompose
+    @State private var editingNote: NoteDTO?
+    @State private var deletingNote: NoteDTO?
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
 
     private var ownGroups: [(String, [NoteDTO])] {
         var order: [String] = []; var map: [String: [NoteDTO]] = [:]
@@ -48,20 +53,23 @@ struct LibraryView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    contextHeader
-                    if store.selectedCardId == nil {
-                        ownStream
-                    } else {
-                        readerStream
+            VStack(spacing: 0) {
+                if searchOpen && store.selectedCardId == nil { searchBar }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        contextHeader
+                        if store.selectedCardId == nil {
+                            ownStream
+                        } else {
+                            readerStream
+                        }
                     }
+                    .padding(.horizontal, Theme.hPad)
+                    .padding(.top, 6)
+                    .padding(.bottom, 112)
                 }
-                .padding(.horizontal, Theme.hPad)
-                .padding(.top, 6)
-                .padding(.bottom, 112)
+                .refreshable { await store.loadAll(api) }
             }
-            .refreshable { await store.loadAll(api) }
 
             if store.selectedCardId == nil {
                 Button { showCompose = true } label: {
@@ -84,6 +92,81 @@ struct LibraryView: View {
             .presentationDragIndicator(.visible)
             .composerSheetShape()
         }
+        .sheet(item: $editingNote) { note in
+            ComposeView(editing: note) {
+                await store.reloadOwn(api)
+            }
+            .presentationDetents([.height(300), .large])
+            .presentationDragIndicator(.visible)
+            .composerSheetShape()
+        }
+        .confirmationDialog(
+            "删除这条笔记？",
+            isPresented: Binding(get: { deletingNote != nil }, set: { if !$0 { deletingNote = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                guard let note = deletingNote else { return }
+                Task { await store.deleteNote(note, api: api) }
+                deletingNote = nil
+            }
+            Button("取消", role: .cancel) { deletingNote = nil }
+        } message: {
+            Text("这条笔记和它的图片会一起删除，发出的卡里也不再显示。")
+        }
+        .onChange(of: searchOpen) { open in
+            if open {
+                searchFocused = true
+            } else {
+                query = ""
+                Task { await store.searchOwn("", api: api) }
+            }
+        }
+        .task(id: query) {
+            // Debounced live search while typing.
+            guard searchOpen, query != store.searchQuery else { return }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            await store.searchOwn(query, api: api)
+        }
+        #if DEBUG
+        .task {
+            if ProcessInfo.processInfo.arguments.contains("--search-demo") {
+                searchOpen = true
+                query = "勇气"
+            }
+            if ProcessInfo.processInfo.arguments.contains("--edit-first") {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                editingNote = store.notes.first
+            }
+        }
+        #endif
+    }
+
+    private var searchBar: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .light)).foregroundStyle(Theme.faint)
+                TextField("搜索我的笔记", text: $query)
+                    .font(Theme.serif(16))
+                    .foregroundStyle(Theme.ink)
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .onSubmit { Task { await store.searchOwn(query, api: api) } }
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(Theme.faint)
+                    }
+                }
+                Button { withAnimation(.easeOut(duration: 0.15)) { searchOpen = false } } label: {
+                    Text("取消").font(.system(size: 13)).foregroundStyle(Theme.clay)
+                }
+            }
+            Hairline()
+        }
+        .padding(.horizontal, Theme.hPad)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
     }
 
     // MARK: Context header
@@ -129,7 +212,7 @@ struct LibraryView: View {
     @ViewBuilder
     private var ownStream: some View {
         if store.notes.isEmpty {
-            emptyState("还没有内容，点右下角写第一条。")
+            emptyState(store.searchQuery.isEmpty ? "还没有内容，点右下角写第一条。" : "没有找到匹配的笔记。")
         } else {
             ForEach(Array(ownGroups.enumerated()), id: \.offset) { gi, group in
                 dayHeader(group.0).padding(.top, gi == 0 ? 2 : 30).padding(.bottom, 16)
@@ -140,6 +223,11 @@ struct LibraryView: View {
                         tagNames: note.tags.map { $0.name },
                         imagePaths: note.images.map { "/api/notes/images/\($0.id)" }
                     )
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        Button { editingNote = note } label: { Label("编辑", systemImage: "pencil") }
+                        Button(role: .destructive) { deletingNote = note } label: { Label("删除", systemImage: "trash") }
+                    }
                     if i < group.1.count - 1 { Hairline().padding(.vertical, 20) }
                 }
             }

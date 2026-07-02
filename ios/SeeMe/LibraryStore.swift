@@ -7,6 +7,7 @@ final class LibraryStore: ObservableObject {
     @Published var me: APIUser?
     @Published var receivedCards: [ReceivedCardDTO] = []
     @Published var activeOwnTagId: String?
+    @Published var searchQuery = ""
     @Published var selectedCardId: String?
     @Published var readerHeader: ReaderHeaderResponse?
     @Published var readerNotes: [ReaderNoteDTO] = []
@@ -37,7 +38,8 @@ final class LibraryStore: ObservableObject {
 
     func reloadOwn(_ api: APIClient) async {
         do {
-            async let loadedNotes = api.listNotes(tagId: activeOwnTagId)
+            let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            async let loadedNotes = api.listNotes(tagId: activeOwnTagId, q: q.isEmpty ? nil : q)
             async let loadedTags = api.listTags()
             async let loadedMe = api.me()
             notes = try await loadedNotes
@@ -54,7 +56,22 @@ final class LibraryStore: ObservableObject {
         readerNotes = []
         activeShareId = nil
         activeOwnTagId = nil
+        searchQuery = ""
         await reloadOwn(api)
+    }
+
+    func searchOwn(_ query: String, api: APIClient) async {
+        searchQuery = query
+        await reloadOwn(api)
+    }
+
+    func deleteNote(_ note: NoteDTO, api: APIClient) async {
+        do {
+            try await api.deleteNote(id: note.id)
+            await reloadOwn(api)
+        } catch {
+            message = "笔记没有删除成功。"
+        }
     }
 
     func showOwnTag(_ id: String, api: APIClient) async {

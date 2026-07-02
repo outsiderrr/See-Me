@@ -100,6 +100,17 @@ final class APIClient: ObservableObject {
         ))
         return r.note
     }
+    func updateNote(id: String, body: String) async throws -> NoteDTO {
+        let r: NoteResponse = try decode(try await request("/api/notes/\(id)", method: "PATCH", body: ["body": body]))
+        return r.note
+    }
+    func setNoteTags(id: String, tagIds: [String]) async throws -> NoteDTO {
+        let r: NoteResponse = try decode(try await request("/api/notes/\(id)/tags", method: "PUT", body: ["tagIds": tagIds]))
+        return r.note
+    }
+    func deleteNote(id: String) async throws {
+        _ = try await request("/api/notes/\(id)", method: "DELETE")
+    }
 
     // MARK: Profile + received cards
     func me() async throws -> APIUser {

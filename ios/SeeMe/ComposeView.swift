@@ -5,6 +5,9 @@ import UIKit
 struct ComposeView: View {
     @EnvironmentObject private var api: APIClient
     @Environment(\.dismiss) private var dismiss
+    /// When set, the composer edits this existing note (body + tags; images
+    /// stay as they are — the backend has no image-edit endpoint).
+    var editing: NoteDTO? = nil
     let onSaved: () async -> Void
 
     @State private var text = ""
@@ -25,7 +28,10 @@ struct ComposeView: View {
     }
 
     private var parsed: ParsedMemo { ParsedMemo(text) }
-    private var canSave: Bool { !parsed.body.isEmpty || !images.isEmpty }
+    private var canSave: Bool {
+        // Editing PATCHes the body, which the backend requires non-empty.
+        editing == nil ? (!parsed.body.isEmpty || !images.isEmpty) : !parsed.body.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,6 +67,16 @@ struct ComposeView: View {
         }
         .background(Theme.raised)
         .onAppear {
+            if let note = editing, text.isEmpty {
+                // Tags were stripped from the stored body; re-append them as
+                // #tokens so the round trip is editable in place.
+                var prefill = note.body
+                if !note.tags.isEmpty {
+                    prefill += (prefill.isEmpty ? "" : "\n\n") + note.tags.map { "#\($0.name)" }.joined(separator: " ")
+                }
+                text = prefill
+                selection = NSRange(location: (prefill as NSString).length, length: 0)
+            }
             Task {
                 tags = (try? await api.listTags()) ?? []
                 try? await Task.sleep(nanoseconds: 180_000_000)
@@ -157,16 +173,18 @@ struct ComposeView: View {
                     .foregroundStyle(Theme.soft)
             }
 
-            PhotosPicker(
-                selection: $pickerItems,
-                maxSelectionCount: max(1, 9 - images.count),
-                matching: .images
-            ) {
-                Image(systemName: "photo")
-                    .font(.system(size: 18, weight: .light))
-                    .foregroundStyle(images.count >= 9 ? Theme.faint : Theme.soft)
+            if editing == nil {
+                PhotosPicker(
+                    selection: $pickerItems,
+                    maxSelectionCount: max(1, 9 - images.count),
+                    matching: .images
+                ) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .light))
+                        .foregroundStyle(images.count >= 9 ? Theme.faint : Theme.soft)
+                }
+                .disabled(images.count >= 9)
             }
-            .disabled(images.count >= 9)
 
             Spacer()
 
@@ -248,7 +266,12 @@ struct ComposeView: View {
                     tagIds.append(tag.id)
                 }
             }
-            _ = try await api.createNote(body: parsed.body, tagIds: Array(Set(tagIds)), images: images)
+            if let note = editing {
+                _ = try await api.updateNote(id: note.id, body: parsed.body)
+                _ = try await api.setNoteTags(id: note.id, tagIds: Array(Set(tagIds)))
+            } else {
+                _ = try await api.createNote(body: parsed.body, tagIds: Array(Set(tagIds)), images: images)
+            }
             await onSaved()
             dismiss()
         } catch APIClient.APIError.status(let status) {
