@@ -2,7 +2,11 @@ import EmbeddedPostgres from 'embedded-postgres';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-const DATA_DIR = path.resolve(process.cwd(), '.pgdata');
+// PGDATA_DIR overrides where the cluster lives (e.g. outside an
+// iCloud-synced folder — eviction of live database files corrupts it).
+const DATA_DIR = process.env.PGDATA_DIR
+  ? path.resolve(process.env.PGDATA_DIR.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'))
+  : path.resolve(process.cwd(), '.pgdata');
 const PORT = 5440;
 const USER = 'seeme';
 const PASSWORD = 'seeme';
