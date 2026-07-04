@@ -26,6 +26,20 @@ const app = () => document.getElementById('app');
 const el = (html) => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstElementChild; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// Markdown (light structure). html:false escapes raw HTML (XSS-safe);
+// image syntax is disabled so a note can never make the reader's browser
+// fetch an author-controlled URL (that would leak a read signal — red line).
+// Real images arrive only through the permission-checked /images endpoints.
+const md = window.markdownit({ html: false, breaks: true, linkify: true });
+md.disable('image');
+const defaultLinkOpen = md.renderer.rules.link_open
+  || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  tokens[idx].attrSet('target', '_blank');
+  tokens[idx].attrSet('rel', 'noopener');
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
 function route() {
   if (!getToken()) return renderLogin();
   const m = location.hash.match(/^#card\/(.+)$/);
@@ -153,7 +167,7 @@ function noteCard(n, cardId) {
   const d = new Date(n.createdAt);
   const ds = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
   const chips = (n.shares || []).map((s) => `<span class="chip">${esc(s.name)}</span>`).join('');
-  const node = el(`<article class="note"><div class="note-body">${esc(n.body)}</div><div class="note-images"></div><div class="note-meta"><span class="date">${ds}</span>${chips}</div></article>`);
+  const node = el(`<article class="note"><div class="note-body">${md.render(n.body || '')}</div><div class="note-images"></div><div class="note-meta"><span class="date">${ds}</span>${chips}</div></article>`);
   const grid = node.querySelector('.note-images');
   (n.images || []).forEach(async (image) => {
     const blob = await apiBlob(`/api/read/${encodeURIComponent(cardId)}/images/${encodeURIComponent(image.id)}`);

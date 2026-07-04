@@ -5,6 +5,9 @@ import UIKit
 struct ComposeView: View {
     @EnvironmentObject private var api: APIClient
     @Environment(\.dismiss) private var dismiss
+    /// When set, the composer edits this existing note (body + tags; images
+    /// stay as they are — the backend has no image-edit endpoint).
+    var editing: NoteDTO? = nil
     let onSaved: () async -> Void
 
     @State private var text = ""
@@ -25,7 +28,10 @@ struct ComposeView: View {
     }
 
     private var parsed: ParsedMemo { ParsedMemo(text) }
-    private var canSave: Bool { !parsed.body.isEmpty || !images.isEmpty }
+    private var canSave: Bool {
+        // Editing PATCHes the body, which the backend requires non-empty.
+        editing == nil ? (!parsed.body.isEmpty || !images.isEmpty) : !parsed.body.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,8 +50,8 @@ struct ComposeView: View {
                 }
                 if text.isEmpty {
                     Text("现在的想法是…")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.secondary)
+                        .font(Theme.serif(18))
+                        .foregroundStyle(Theme.faint)
                         .padding(.horizontal, 17)
                         .padding(.vertical, 15)
                         .allowsHitTesting(false)
@@ -56,11 +62,21 @@ struct ComposeView: View {
                 imageStrip
             }
 
-            Divider()
+            Hairline()
             inputToolbar
         }
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(Theme.raised)
         .onAppear {
+            if let note = editing, text.isEmpty {
+                // Tags were stripped from the stored body; re-append them as
+                // #tokens so the round trip is editable in place.
+                var prefill = note.body
+                if !note.tags.isEmpty {
+                    prefill += (prefill.isEmpty ? "" : "\n\n") + note.tags.map { "#\($0.name)" }.joined(separator: " ")
+                }
+                text = prefill
+                selection = NSRange(location: (prefill as NSString).length, length: 0)
+            }
             Task {
                 tags = (try? await api.listTags()) ?? []
                 try? await Task.sleep(nanoseconds: 180_000_000)
@@ -83,14 +99,14 @@ struct ComposeView: View {
     private var suggestionList: some View {
         Group {
             if suggestions.isEmpty {
-                HStack {
-                    Image(systemName: "plus.circle")
-                    Text(activeTagQuery?.isEmpty == false ? "将新建 #\(activeTagQuery!)" : "输入标签名称")
+                HStack(spacing: 8) {
+                    Image(systemName: "plus").font(.system(size: 13, weight: .light))
+                    Text(activeTagQuery?.isEmpty == false ? "新建标签「\(activeTagQuery!)」" : "输入标签名称")
+                        .font(Theme.serif(16))
                     Spacer()
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
+                .foregroundStyle(Theme.soft)
+                .padding(.horizontal, Theme.hPad)
                 .frame(height: 48)
             } else {
                 ScrollView {
@@ -100,24 +116,25 @@ struct ComposeView: View {
                                 chooseTag(tag)
                             } label: {
                                 HStack {
-                                    Text("#\(tag.name)")
-                                        .foregroundStyle(Color.seeBlue)
+                                    Text("# \(tag.name)")
+                                        .font(Theme.serif(16))
+                                        .foregroundStyle(Theme.clay)
                                     Spacer()
                                     Text("\(tag.noteCount)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Theme.faint)
                                 }
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, Theme.hPad)
                                 .frame(height: 44)
                             }
-                            Divider().padding(.leading, 16)
+                            Hairline(inset: Theme.hPad)
                         }
                     }
                 }
                 .frame(maxHeight: 220)
             }
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(Theme.raised)
     }
 
     private var imageStrip: some View {
@@ -149,28 +166,32 @@ struct ComposeView: View {
     }
 
     private var inputToolbar: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 26) {
             Button(action: insertHash) {
                 Image(systemName: "number")
-                    .font(.system(size: 24, weight: .medium))
+                    .font(.system(size: 19, weight: .light))
+                    .foregroundStyle(Theme.soft)
             }
 
-            PhotosPicker(
-                selection: $pickerItems,
-                maxSelectionCount: max(1, 9 - images.count),
-                matching: .images
-            ) {
-                Image(systemName: "photo")
-                    .font(.system(size: 22, weight: .medium))
+            if editing == nil {
+                PhotosPicker(
+                    selection: $pickerItems,
+                    maxSelectionCount: max(1, 9 - images.count),
+                    matching: .images
+                ) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .light))
+                        .foregroundStyle(images.count >= 9 ? Theme.faint : Theme.soft)
+                }
+                .disabled(images.count >= 9)
             }
-            .disabled(images.count >= 9)
 
             Spacer()
 
             if !message.isEmpty {
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.brick)
                     .lineLimit(1)
             }
 
@@ -178,17 +199,15 @@ struct ComposeView: View {
                 Task { await save() }
             } label: {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 42)
-                    .background(canSave ? Color.seeGreen : Color.secondary.opacity(0.35))
-                    .clipShape(Capsule())
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.paper)
+                    .frame(width: 46, height: 38)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(canSave ? Theme.ink : Theme.faint))
             }
             .disabled(!canSave || saving)
         }
-        .foregroundStyle(Color.primary)
-        .padding(.horizontal, 18)
-        .frame(height: 62)
+        .padding(.horizontal, Theme.hPad)
+        .frame(height: 60)
     }
 
     private func insertHash() {
@@ -247,7 +266,12 @@ struct ComposeView: View {
                     tagIds.append(tag.id)
                 }
             }
-            _ = try await api.createNote(body: parsed.body, tagIds: Array(Set(tagIds)), images: images)
+            if let note = editing {
+                _ = try await api.updateNote(id: note.id, body: parsed.body)
+                _ = try await api.setNoteTags(id: note.id, tagIds: Array(Set(tagIds)))
+            } else {
+                _ = try await api.createNote(body: parsed.body, tagIds: Array(Set(tagIds)), images: images)
+            }
             await onSaved()
             dismiss()
         } catch APIClient.APIError.status(let status) {
@@ -296,12 +320,20 @@ struct TagTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    static let editorFont: UIFont = {
+        let base = UIFont.systemFont(ofSize: 18)
+        guard let d = base.fontDescriptor.withDesign(.serif) else { return base }
+        return UIFont(descriptor: d, size: 18)
+    }()
+
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
         view.backgroundColor = .clear
-        view.font = .systemFont(ofSize: 18)
-        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        view.font = TagTextView.editorFont
+        view.textColor = UIColor(Theme.ink)
+        view.tintColor = UIColor(Theme.clay)
+        view.textContainerInset = UIEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
         view.keyboardDismissMode = .interactive
         view.alwaysBounceVertical = true
         return view
@@ -347,17 +379,17 @@ struct TagTextView: UIViewRepresentable {
             let full = NSRange(location: 0, length: (textView.text as NSString).length)
             textView.textStorage.beginEditing()
             textView.textStorage.setAttributes([
-                .font: UIFont.systemFont(ofSize: 18),
-                .foregroundColor: UIColor.label,
+                .font: TagTextView.editorFont,
+                .foregroundColor: UIColor(Theme.ink),
             ], range: full)
             for match in regex.matches(in: textView.text, range: full) {
-                textView.textStorage.addAttribute(.foregroundColor, value: UIColor(Color.seeBlue), range: match.range)
+                textView.textStorage.addAttribute(.foregroundColor, value: UIColor(Theme.clay), range: match.range)
             }
             textView.textStorage.endEditing()
             textView.selectedRange = selected
             textView.typingAttributes = [
-                .font: UIFont.systemFont(ofSize: 18),
-                .foregroundColor: UIColor.label,
+                .font: TagTextView.editorFont,
+                .foregroundColor: UIColor(Theme.ink),
             ]
         }
 

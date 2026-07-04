@@ -2,8 +2,17 @@ import Foundation
 
 @MainActor
 final class APIClient: ObservableObject {
-    /// Simulator -> http://localhost:3000 ; real device -> your Mac's LAN IP ; prod -> https domain.
-    static let baseURL = "http://localhost:3000"
+    /// Simulator -> localhost; real device -> the Mac's current LAN/hotspot IP
+    /// (changes when the network changes — edit deviceHost and rebuild);
+    /// prod -> the Tokyo ECS https domain once deployed.
+    static let deviceHost = "172.20.10.5"
+    static let baseURL: String = {
+        #if targetEnvironment(simulator)
+        "http://localhost:3000"
+        #else
+        "http://\(deviceHost):3000"
+        #endif
+    }()
 
     @Published var token: String? = UserDefaults.standard.string(forKey: "see_me_token")
     var isLoggedIn: Bool { token != nil }
@@ -99,6 +108,17 @@ final class APIClient: ObservableObject {
             body: ["body": body, "tagIds": tagIds, "images": encoded]
         ))
         return r.note
+    }
+    func updateNote(id: String, body: String) async throws -> NoteDTO {
+        let r: NoteResponse = try decode(try await request("/api/notes/\(id)", method: "PATCH", body: ["body": body]))
+        return r.note
+    }
+    func setNoteTags(id: String, tagIds: [String]) async throws -> NoteDTO {
+        let r: NoteResponse = try decode(try await request("/api/notes/\(id)/tags", method: "PUT", body: ["tagIds": tagIds]))
+        return r.note
+    }
+    func deleteNote(id: String) async throws {
+        _ = try await request("/api/notes/\(id)", method: "DELETE")
     }
 
     // MARK: Profile + received cards

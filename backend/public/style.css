@@ -57,8 +57,31 @@ body {
 
 .feed { display: flex; flex-direction: column; gap: 14px; }
 .note { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px 16px; }
-.note-body { font-size: 16px; line-height: 1.85; white-space: pre-wrap; font-family: Georgia, "Songti SC", serif; }
+.note-body { font-size: 16px; line-height: 1.85; font-family: Georgia, "Songti SC", serif; }
 .note-body:empty { display: none; }
+/* markdown blocks (light structure) */
+.note-body > :first-child { margin-top: 0; }
+.note-body > :last-child { margin-bottom: 0; }
+.note-body p { margin: 0 0 .8em; }
+.note-body h1, .note-body h2, .note-body h3,
+.note-body h4, .note-body h5, .note-body h6 { margin: .2em 0 .5em; line-height: 1.4; }
+.note-body h1 { font-size: 1.3em; }
+.note-body h2 { font-size: 1.18em; }
+.note-body h3, .note-body h4, .note-body h5, .note-body h6 { font-size: 1.06em; }
+.note-body ul, .note-body ol { margin: 0 0 .8em; padding-left: 1.4em; }
+.note-body li { margin: .15em 0; }
+.note-body blockquote {
+  margin: 0 0 .8em; padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--accent); color: var(--soft);
+}
+.note-body code {
+  font-family: ui-monospace, Menlo, monospace; font-size: .88em;
+  background: rgba(43, 39, 35, .06); padding: 1px 5px; border-radius: 5px;
+}
+.note-body pre { overflow-x: auto; background: rgba(43, 39, 35, .06); padding: 10px 12px; border-radius: 8px; }
+.note-body pre code { background: none; padding: 0; }
+.note-body a { color: var(--accent); }
+.note-body hr { border: none; border-top: 1px solid var(--line); margin: 1em 0; }
 .note-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
 .note-images:empty { display: none; }
 .note-images img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 9px; }

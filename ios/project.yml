@@ -1,15 +1,21 @@
 name: SeeMe
 options:
-  bundleIdPrefix: com.seeme
+  bundleIdPrefix: com.outsiderrr
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.0
 targets:
   SeeMe:
     type: application
     platform: iOS
     sources:
       - SeeMe
+    dependencies:
+      - package: MarkdownUI
     info:
       path: SeeMe/Info.plist
       properties:
@@ -17,13 +23,21 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # 0.01 dev build talks to the Mac backend over plain HTTP (LAN IP).
+        # Tighten back to exception domains once the Tokyo ECS + HTTPS is up.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
+        # Standard HTTPS/URLSession only -> exempt; skips the export
+        # compliance question on every TestFlight build.
+        ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.seeme.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.outsiderrr.seeme
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.0"
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "0.01"
         CURRENT_PROJECT_VERSION: "1"
-        CODE_SIGNING_ALLOWED: "NO"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # NOTE: CLI simulator builds pass CODE_SIGNING_ALLOWED=NO explicitly;
+        # it must NOT live here or Xcode archiving for TestFlight breaks.
