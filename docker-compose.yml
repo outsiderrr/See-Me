@@ -1,0 +1,36 @@
+# See Me production stack: Postgres + backend (API + B reading web).
+# On the server:  cp .env.server.example .env  → fill secrets → docker compose up -d --build
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: seeme
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in .env}
+      POSTGRES_DB: see_me
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seeme -d see_me"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://seeme:${DB_PASSWORD}@db:5432/see_me
+      OTP_SECRET: ${OTP_SECRET:?put OTP_SECRET in .env}
+      SMS_DRIVER: ${SMS_DRIVER:-dev}
+      SESSION_TTL_DAYS: "60"
+      PORT: "3000"
+    ports:
+      - "80:3000"
+
+volumes:
+  db-data:
