@@ -1,0 +1,148 @@
+/* Fathom 控制台 —— 纸页设计系统（v2 spec §7）。
+   结构靠细线和留白，不堆卡片、不堆胶囊；圆角小；几乎无阴影。 */
+:root {
+  --paper: #FBF6EE;
+  --raised: #FEFBF5;
+  --ink: #282320;
+  --soft: #7B7267;
+  --faint: #AEA69A;
+  --clay: #9A6040;
+  --brick: #9A4A3C;
+  --rule: rgba(40, 35, 32, .12);
+  --serif: Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171511; --raised: #232019; --ink: #ECE6DC; --soft: #9C9485;
+    --faint: #6F6960; --clay: #CA8F68; --brick: #CD7D6B; --rule: rgba(236, 230, 220, .14);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+/* ---------- 登录 ---------- */
+.gate { max-width: 340px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 0 20px; }
+.gate .mark { font-family: var(--serif); font-size: 30px; letter-spacing: .03em; }
+.gate .sub { color: var(--soft); font-size: 14px; margin: 6px 0 26px; }
+.field { width: 100%; padding: 11px 13px; background: var(--raised); border: 1px solid var(--rule); border-radius: 9px; outline: none; margin-bottom: 10px; }
+.field:focus { border-color: var(--clay); }
+.btn { padding: 11px 16px; border: 1px solid var(--ink); border-radius: 9px; background: var(--ink); color: var(--paper); }
+.btn.quiet { background: transparent; color: var(--clay); border-color: var(--rule); }
+.btn.danger { background: transparent; color: var(--brick); border-color: var(--rule); }
+.btn.small { padding: 5px 11px; font-size: 13px; border-radius: 8px; }
+.btn:disabled { opacity: .45; cursor: default; }
+.note-msg { color: var(--brick); font-size: 13px; min-height: 18px; margin-top: 8px; }
+
+/* ---------- 骨架 ---------- */
+.shell { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100vh; }
+.side { border-right: 1px solid var(--rule); padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; }
+.side .mark { font-family: var(--serif); font-size: 19px; letter-spacing: .03em; }
+.nav { display: flex; flex-direction: column; gap: 1px; }
+.nav a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px; text-decoration: none; color: var(--soft); font-size: 14px; }
+.nav a.on { background: var(--raised); color: var(--ink); }
+.nav .count { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.side .who { margin-top: auto; font-size: 12.5px; color: var(--faint); line-height: 1.7; }
+.side .who button { background: none; border: none; padding: 0; color: var(--clay); font-size: 12.5px; }
+.main { padding: 24px 28px 80px; max-width: 760px; }
+.head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+.head h1 { font-family: var(--serif); font-size: 22px; font-weight: 600; margin: 0; }
+.head .hint { color: var(--faint); font-size: 13px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin: 16px 0 20px; flex-wrap: wrap; }
+.search { flex: 1; min-width: 160px; padding: 8px 12px; background: var(--raised); border: 1px solid var(--rule); border-radius: 9px; outline: none; }
+.search:focus { border-color: var(--clay); }
+
+/* ---------- 笔记流 ---------- */
+.daygroup { margin-top: 26px; }
+.daygroup > .day { font-size: 12px; color: var(--faint); letter-spacing: .06em; padding-bottom: 7px; border-bottom: 1px solid var(--rule); }
+.entry { padding: 17px 0; border-bottom: 1px solid var(--rule); }
+.entry .body { font-family: var(--serif); font-size: 15.5px; line-height: 1.85; }
+.body > :first-child { margin-top: 0; }
+.body > :last-child { margin-bottom: 0; }
+.body p { margin: 0 0 .7em; }
+.body h1, .body h2, .body h3 { font-size: 1.12em; margin: .2em 0 .45em; }
+.body ul, .body ol { margin: 0 0 .7em; padding-left: 1.35em; }
+.body blockquote { margin: 0 0 .7em; padding-left: 11px; border-left: 2px solid var(--clay); color: var(--soft); }
+.body code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; background: var(--rule); padding: 1px 5px; border-radius: 5px; }
+.body pre { overflow-x: auto; background: var(--rule); padding: 9px 11px; border-radius: 8px; }
+.body pre code { background: none; padding: 0; }
+.body a { color: var(--clay); }
+.entry .foot { display: flex; align-items: center; gap: 9px; margin-top: 11px; flex-wrap: wrap; }
+.entry .time { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tag { font-size: 12px; color: var(--clay); }
+.tag::before { content: "#"; opacity: .55; }
+.entry .acts { margin-left: auto; display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+.entry:hover .acts, .entry:focus-within .acts { opacity: 1; }
+.entry .acts button { background: none; border: none; color: var(--faint); font-size: 12.5px; padding: 2px 5px; border-radius: 6px; }
+.entry .acts button:hover { color: var(--ink); background: var(--raised); }
+.entry .acts button.del:hover { color: var(--brick); }
+.untagged { color: var(--faint); font-size: 12px; }
+
+/* ---------- 写 / 编辑 ---------- */
+.composer { background: var(--raised); border: 1px solid var(--rule); border-radius: 11px; padding: 13px 14px; }
+.composer textarea { width: 100%; min-height: 96px; resize: vertical; background: none; border: none; outline: none; font-family: var(--serif); font-size: 15.5px; line-height: 1.85; }
+.composer .row { display: flex; align-items: center; gap: 8px; margin-top: 9px; padding-top: 10px; border-top: 1px solid var(--rule); flex-wrap: wrap; }
+.composer .row .grow { flex: 1; }
+.picker { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pick { font-size: 12.5px; padding: 3px 9px; border-radius: 7px; border: 1px solid var(--rule); background: none; color: var(--soft); }
+.pick.on { border-color: var(--clay); color: var(--clay); }
+.pick.new { color: var(--faint); border-style: dashed; }
+
+/* ---------- 卡 ---------- */
+.cardrow { padding: 18px 0; border-bottom: 1px solid var(--rule); }
+.cardtop { display: flex; align-items: baseline; gap: 12px; }
+.cardname { font-family: var(--serif); font-size: 17px; }
+.kind { font-size: 11.5px; color: var(--soft); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 6px; margin-right: 8px; }
+.kind.open { color: var(--clay); border-color: var(--clay); }
+.cardacts { margin-left: auto; display: flex; gap: 3px; flex-wrap: wrap; }
+.cardacts button { background: none; border: none; color: var(--faint); font-size: 12.5px; padding: 2px 6px; border-radius: 6px; }
+.cardacts button:hover { color: var(--ink); background: var(--raised); }
+.cardacts button.del:hover { color: var(--brick); }
+.cardkey { display: flex; align-items: center; gap: 8px; margin: 10px 0 12px; flex-wrap: wrap; }
+.link { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: var(--raised); border: 1px solid var(--rule); border-radius: 7px; padding: 4px 9px; word-break: break-all; }
+.keyhint { color: var(--faint); font-size: 12px; line-height: 1.7; }
+.warn { color: var(--brick); font-size: 12px; line-height: 1.7; flex-basis: 100%; }
+.shares { display: flex; flex-direction: column; gap: 1px; }
+.share { display: flex; align-items: center; gap: 9px; padding: 6px 0; flex-wrap: wrap; }
+.sharename { font-size: 13.5px; }
+.rule { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.rule .tag.ex { color: var(--brick); }
+.minus { color: var(--faint); font-size: 12px; }
+.auto { font-size: 11.5px; color: var(--clay); }
+.shareacts { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.share:hover .shareacts, .share:focus-within .shareacts { opacity: 1; }
+.shareacts button { background: none; border: none; color: var(--faint); font-size: 12px; padding: 2px 5px; border-radius: 6px; }
+.shareacts button:hover { color: var(--ink); background: var(--raised); }
+.shareacts button.del:hover { color: var(--brick); }
+.cardfoot { color: var(--faint); font-size: 12px; margin-top: 10px; }
+.cardpanel:not(:empty) { margin-top: 12px; }
+.rules { display: flex; flex-direction: column; gap: 8px; }
+.rulerow { display: flex; align-items: flex-start; gap: 10px; }
+.rulelabel { font-size: 12.5px; color: var(--soft); flex: 0 0 30px; padding-top: 4px; }
+.pick:disabled { opacity: .3; cursor: default; }
+.pvtabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.pvtabs .tab { font-size: 12px; color: var(--soft); border: 1px solid var(--rule); border-radius: 999px; padding: 2px 9px; }
+.pvnote { padding: 10px 0; border-top: 1px solid var(--rule); }
+.pvnote .body { font-family: var(--serif); font-size: 14.5px; line-height: 1.8; }
+.pvnote .body p { margin: 0 0 .5em; }
+
+@media (max-width: 720px) {
+  .cardacts, .shareacts { opacity: 1; }
+}
+
+.empty { color: var(--faint); font-size: 14px; line-height: 2; padding: 54px 0; text-align: center; }
+.loading { color: var(--faint); font-size: 13px; padding: 34px 0; text-align: center; }
+
+@media (max-width: 720px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { border-right: none; border-bottom: 1px solid var(--rule); flex-direction: row; align-items: center; gap: 14px; padding: 12px 16px; overflow-x: auto; }
+  .side .mark { font-size: 16px; }
+  .nav { flex-direction: row; gap: 2px; }
+  .side .who { margin-top: 0; margin-left: auto; white-space: nowrap; }
+  .main { padding: 18px 16px 70px; }
+  .entry .acts { opacity: 1; }
+}

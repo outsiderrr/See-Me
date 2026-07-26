@@ -195,6 +195,20 @@ export async function setShareTags(
   return { ok: true };
 }
 
+/**
+ * Delete a card outright — the only true retraction. Shares, share-tags and holders
+ * all cascade, so every reader loses access immediately and silently; notes and tags
+ * are untouched (a card owns no content, only rules). Scoped by userId in the same
+ * statement, so it can never reach another author's card.
+ *
+ * Emptying a card's shares is NOT equivalent: an open card with zero shares still
+ * resolves its slug and renders an empty page. Retracting means delete (or rotate).
+ */
+export async function deleteCard(userId: string, cardId: string): Promise<boolean> {
+  const r = await db.card.deleteMany({ where: { id: cardId, userId } });
+  return r.count > 0;
+}
+
 /** Remove a share (silent revoke for holders). */
 export async function removeShare(userId: string, cardId: string, shareId: string): Promise<boolean> {
   if (!(await ownsShare(userId, cardId, shareId))) return false;

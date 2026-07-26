@@ -32,12 +32,16 @@ export async function deleteNote(userId: string, id: string): Promise<boolean> {
   return r.count > 0;
 }
 
-/** List the caller's own notes; optional tag filter and case-insensitive text search.
- *  Always scoped to userId (no cross-user leak); Prisma parameterizes (no SQL injection). */
-export async function listNotes(userId: string, opts: { tagId?: string; q?: string } = {}) {
+/** List the caller's own notes; optional tag filter, untagged-only, and case-insensitive
+ *  text search. Always scoped to userId (no cross-user leak); Prisma parameterizes (no
+ *  SQL injection). `untagged` is the console's inbox: a note with no tag matches no
+ *  share's include set, so it is invisible to every card — tagging IS the publish
+ *  decision (v2 §1 决策 7). */
+export async function listNotes(userId: string, opts: { tagId?: string; q?: string; untagged?: boolean } = {}) {
   return db.note.findMany({
     where: {
       userId,
+      ...(opts.untagged ? { noteTags: { none: {} } } : {}),
       ...(opts.tagId ? { noteTags: { some: { tagId: opts.tagId } } } : {}),
       ...(opts.q ? { body: { contains: opts.q, mode: 'insensitive' } } : {}),
     },

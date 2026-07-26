@@ -1,4 +1,4 @@
-# See Me backend — Hono API + B reading web (served from ./public).
+# Fathom backend — Hono API + B reading web (served from ./public).
 FROM node:24-slim
 
 # openssl: required by Prisma's query engine on slim images.

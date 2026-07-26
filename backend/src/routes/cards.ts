@@ -49,6 +49,11 @@ cardRoutes.get('/:id', async (c) => {
   return card ? c.json({ card: Cards.cardDto(card) }) : c.json({ error: 'not_found' }, 404);
 });
 
+cardRoutes.delete('/:id', async (c) => {
+  const ok = await Cards.deleteCard(c.get('userId')!, c.req.param('id'));
+  return ok ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404);
+});
+
 cardRoutes.post('/:id/advance', async (c) => {
   const ok = await Cards.advanceTime(c.get('userId')!, c.req.param('id'));
   return ok ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404);

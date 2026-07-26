@@ -2,5 +2,9 @@ node_modules/
 dist/
 .pgdata/
 .pgdata-test/
+# 2026-06-25 iCloud 驱逐事故里损坏的旧集群，隔离留档等待用户确认删除。
+# 必须显式忽略：它没有 .pgdata 那样的名字，一次 `git add backend` 就会把
+# 767 个文件（含两个 16MB WAL）卷进提交。
+.pgdata.broken/
 .env
 *.log
