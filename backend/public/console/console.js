@@ -90,6 +90,7 @@ function renderShell() {
 const VIEWS = [
   { id: 'library', label: '库' },
   { id: 'inbox', label: '收件箱' },
+  { id: 'cards', label: '卡' },
 ];
 
 function drawNav(counts = {}) {
@@ -136,6 +137,7 @@ function hhmm(iso) {
 }
 
 async function renderMain() {
+  if (state.view === 'cards') return renderCardsView();
   const main = document.getElementById('main');
   const inbox = state.view === 'inbox';
   main.innerHTML = `
@@ -333,6 +335,297 @@ function mountComposer(host) {
   host.appendChild(box);
 }
 
+/* ---------------- 卡 ---------------- */
+/* 一张卡 = 一组规则，不含内容。它决定「谁能看见什么」。
+   这里刻意没有、且永远不会有的东西：持卡人数、身份、兑换时间（红线 #7）。
+   A 端不存在读者可见面——作废与轮换都作用于码/链接本身，不基于持有人列表。 */
+
+const tagName = (id) => (state.tags.find((t) => t.id === id) || {}).name || '?';
+const openLink = (slug) => `${location.origin}/c/${slug}`;
+
+async function renderCardsView() {
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="head"><h1>卡</h1><span class="hint">谁能看见什么</span></div>
+    <div id="newcard"></div>
+    <div id="cardlist" class="loading">…</div>`;
+  mountCardCreator(document.getElementById('newcard'));
+  loadCards();
+}
+
+async function loadCards() {
+  const box = document.getElementById('cardlist');
+  if (!box) return;
+  const r = await get('/api/cards');
+  if (r.status === 401) { clearToken(); return boot(); }
+  const cards = r.body?.cards || [];
+  box.className = '';
+  box.innerHTML = '';
+  if (cards.length === 0) {
+    box.className = 'empty';
+    box.textContent = '还没有卡。\n卡是你给出去的那把钥匙——建一张，决定它能开哪几扇门。';
+    return;
+  }
+  cards.forEach((c) => box.appendChild(cardRow(c)));
+}
+
+function cardRow(c) {
+  const open = c.kind === 'open';
+  const node = el(`<section class="cardrow">
+      <div class="cardtop">
+        <div>
+          <span class="kind ${open ? 'open' : ''}">${open ? '免登录' : '需登录'}</span>
+          <span class="cardname">${esc(c.title)}</span>
+        </div>
+        <div class="cardacts"></div>
+      </div>
+      <div class="cardkey"></div>
+      <div class="shares"></div>
+      <div class="cardfoot"></div>
+      <div class="cardpanel"></div>
+    </section>`);
+
+  // 凭证：免登录卡是链接本身，登录卡是 8 位码。
+  const key = node.querySelector('.cardkey');
+  if (open) {
+    const url = openLink(c.publicSlug);
+    key.appendChild(el(`<code class="link">${esc(url)}</code>`));
+    const copy = el('<button class="btn small quiet">复制</button>');
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(url); copy.textContent = '已复制'; }
+      catch { copy.textContent = '复制失败'; }
+      setTimeout(() => (copy.textContent = '复制'), 1400);
+    };
+    key.appendChild(copy);
+    // 这条链接就是这张卡的全部凭证。明文 HTTP 会把它暴露给链路上每一跳。
+    if (location.protocol !== 'https:') {
+      key.appendChild(el('<div class="warn">当前是明文 HTTP —— slug 会在链路上暴露。上 HTTPS 之前别对外发。</div>'));
+    }
+  } else {
+    key.appendChild(el(`<code class="link">${esc(c.inviteCode)}</code>`));
+    key.appendChild(el('<span class="keyhint">读者在登录后输入这个码</span>'));
+  }
+
+  // 分享 = 读者看到的 tab。这里显示构成它的标签（A 端自己的卡，标签可见；读者端永不下发）。
+  const shares = node.querySelector('.shares');
+  if (c.shares.length === 0) {
+    shares.appendChild(el('<div class="keyhint">没有分享 —— 这张卡目前什么都看不到。</div>'));
+  }
+  c.shares.forEach((s) => shares.appendChild(shareRow(c, s)));
+
+  const cutoff = new Date(c.visibleUntil);
+  node.querySelector('.cardfoot').textContent =
+    `冻结分享只显示 ${cutoff.getFullYear()}.${String(cutoff.getMonth() + 1).padStart(2, '0')}.${String(cutoff.getDate()).padStart(2, '0')} ${String(cutoff.getHours()).padStart(2, '0')}:${String(cutoff.getMinutes()).padStart(2, '0')} 之前的笔记`;
+
+  const acts = node.querySelector('.cardacts');
+  const panel = node.querySelector('.cardpanel');
+  const act = (label, cls, fn) => { const b = el(`<button class="${cls}">${label}</button>`); b.onclick = fn; acts.appendChild(b); };
+
+  act('预览', '', () => togglePanel(panel, 'preview', () => previewPanel(c)));
+  act('加分享', '', () => togglePanel(panel, 'share', () => addSharePanel(c)));
+  act('推进时间', '', async () => {
+    if (!confirm('把可见范围推进到现在？冻结的分享会开始显示这之前的所有笔记。只会放宽，不会收紧。')) return;
+    if ((await post(`/api/cards/${encodeURIComponent(c.id)}/advance`, {})).status === 200) loadCards();
+  });
+  act('轮换', '', async () => {
+    if (!confirm(open
+      ? '换一条新链接？旧链接立即失效——已经发出去的人会打不开。'
+      : '换一个新邀请码？旧码立即失效。已经兑换过的读者不受影响。')) return;
+    const r = await post(`/api/cards/${encodeURIComponent(c.id)}/rotate-code`, {});
+    if (r.status === 200) loadCards();
+  });
+  act('删除', 'del', async () => {
+    if (!confirm(open
+      ? '删掉这张卡？链接立即失效，且不留痕迹。这是唯一真正的撤回——清空分享做不到（链接还打得开）。'
+      : '删掉这张卡？所有持卡人立即失去访问，且不留痕迹。')) return;
+    if ((await del('/api/cards/' + encodeURIComponent(c.id))).status === 200) loadCards();
+  });
+  return node;
+}
+
+/** 预览和加分享共用一个面板位。用 key 区分：点同一个按钮是收起，点另一个是切换
+ *  （否则开着预览时点「加分享」只会把预览关掉，看起来像按钮坏了）。
+ *  build() 可以是同步或异步（预览要打一次接口）—— await 兼容两者。 */
+async function togglePanel(panel, key, build) {
+  if (panel.dataset.open === key) { panel.dataset.open = ''; panel.innerHTML = ''; return; }
+  panel.dataset.open = key;
+  panel.innerHTML = '<div class="loading">…</div>';
+  const node = await build();
+  if (panel.dataset.open !== key) return; // 等接口期间用户又点了别的
+  panel.innerHTML = '';
+  if (node) panel.appendChild(node);
+}
+
+function shareRow(c, s) {
+  const inc = s.include.map((t) => `<span class="tag">${esc(t.name)}</span>`).join('');
+  const exc = s.exclude.length
+    ? ' <span class="minus">−</span> ' + s.exclude.map((t) => `<span class="tag ex">${esc(t.name)}</span>`).join('')
+    : '';
+  const node = el(`<div class="share">
+      <span class="sharename">${esc(s.name)}</span>
+      <span class="rule">${inc}${exc}</span>
+      ${s.isAutoUpdate ? '<span class="auto">自动更新</span>' : ''}
+      <span class="shareacts"></span>
+    </div>`);
+  const acts = node.querySelector('.shareacts');
+  const mk = (label, cls, fn) => { const b = el(`<button class="${cls}">${label}</button>`); b.onclick = fn; acts.appendChild(b); };
+  mk('改名', '', async () => {
+    const name = prompt('读者看到的名字（内部标签名永不外泄）：', s.name);
+    if (name === null || !name.trim()) return;
+    if ((await patch(`/api/cards/${encodeURIComponent(c.id)}/shares/${encodeURIComponent(s.id)}`, { name: name.trim() })).status === 200) loadCards();
+  });
+  mk(s.isAutoUpdate ? '改冻结' : '改自动', '', async () => {
+    const next = !s.isAutoUpdate;
+    if (next && !confirm('设为自动更新？以后凡是符合这组标签的新笔记都会自动出现，不再受时间截止点限制。')) return;
+    if ((await patch(`/api/cards/${encodeURIComponent(c.id)}/shares/${encodeURIComponent(s.id)}`, { autoUpdate: next })).status === 200) loadCards();
+  });
+  mk('收回', 'del', async () => {
+    if (!confirm(`收回「${s.name}」？读者那边这个 tab 和它带来的内容会直接消失，零痕迹。`)) return;
+    if ((await del(`/api/cards/${encodeURIComponent(c.id)}/shares/${encodeURIComponent(s.id)}`)).status === 200) loadCards();
+  });
+  return node;
+}
+
+/** 分享规则编辑器：必含（交集）+ 排除。一条分享至少要一个必含标签。 */
+function ruleEditor(initial = { include: [], exclude: [] }) {
+  const include = new Set(initial.include);
+  const exclude = new Set(initial.exclude);
+  const box = el(`<div class="rules">
+      <div class="rulerow"><span class="rulelabel">必含</span><div class="picker" id="inc"></div></div>
+      <div class="rulerow"><span class="rulelabel">排除</span><div class="picker" id="exc"></div></div>
+      <div class="keyhint">必含 = 笔记要同时带上全部这些标签（交集）。排除 = 带了任一个就不给看。</div>
+    </div>`);
+  const draw = () => {
+    ['inc', 'exc'].forEach((which) => {
+      const host = box.querySelector('#' + which);
+      const mine = which === 'inc' ? include : exclude;
+      const other = which === 'inc' ? exclude : include;
+      host.innerHTML = '';
+      state.tags.forEach((t) => {
+        const b = el(`<button class="pick ${mine.has(t.id) ? 'on' : ''}">${esc(t.name)}</button>`);
+        b.disabled = other.has(t.id); // 同一个标签不能既必含又排除
+        b.onclick = () => { mine.has(t.id) ? mine.delete(t.id) : mine.add(t.id); draw(); };
+        host.appendChild(b);
+      });
+    });
+  };
+  draw();
+  return { node: box, include, exclude };
+}
+
+function addSharePanel(c) {
+  const wrap = el('<div class="composer"></div>');
+  const ed = ruleEditor();
+  wrap.appendChild(ed.node);
+  const row = el('<div class="row"><input class="field name" placeholder="读者看到的名字（留空则用标签名）" style="margin:0;flex:1" /></div>');
+  wrap.appendChild(row);
+  const auto = el('<label class="keyhint" style="display:flex;gap:6px;align-items:center"><input type="checkbox" /> 自动更新（新笔记自动进来）</label>');
+  row.appendChild(auto);
+  const save = el('<button class="btn small">加上</button>');
+  save.onclick = async () => {
+    if (ed.include.size === 0) { alert('至少要一个必含标签，否则这条分享没有意义。'); return; }
+    save.disabled = true;
+    const r = await post(`/api/cards/${encodeURIComponent(c.id)}/shares`, {
+      name: row.querySelector('.name').value.trim() || undefined,
+      autoUpdate: auto.querySelector('input').checked,
+      include: [...ed.include],
+      exclude: [...ed.exclude],
+    });
+    if (r.status === 200) loadCards();
+    else { alert('加不上'); save.disabled = false; }
+  };
+  row.appendChild(save);
+  return wrap;
+}
+
+async function previewPanel(c) {
+  const wrap = el('<div class="composer"><div class="keyhint">这是持卡人现在打开会看到的东西（实时算的，不会建持卡记录）。</div><div class="pv loading">…</div></div>');
+  const host = wrap.querySelector('.pv');
+  const r = await get(`/api/cards/${encodeURIComponent(c.id)}/preview`);
+  host.className = 'pv';
+  host.innerHTML = '';
+  if (r.status !== 200) { host.textContent = '预览失败'; return wrap; }
+  const tabs = ['最近更新', ...(r.body.tabs || []).map((t) => t.name)];
+  host.appendChild(el(`<div class="pvtabs">${tabs.map((t) => `<span class="tab">${esc(t)}</span>`).join('')}</div>`));
+  const notes = r.body.notes || [];
+  if (notes.length === 0) { host.appendChild(el('<div class="keyhint">读者现在什么都看不到。</div>')); return wrap; }
+  notes.slice(0, 5).forEach((n) => {
+    const chips = (n.shares || []).map((s) => `<span class="tag">${esc(s.name)}</span>`).join(' ');
+    host.appendChild(el(`<div class="pvnote"><div class="body">${md.render(n.body || '')}</div><div class="keyhint">${chips}</div></div>`));
+  });
+  if (notes.length > 5) host.appendChild(el(`<div class="keyhint">…还有 ${notes.length - 5} 条</div>`));
+  return wrap;
+}
+
+/** 建卡。默认走 spec 的快速模式：选中的每个标签各自成为一条分享，分享名 = 标签名。 */
+function mountCardCreator(host) {
+  const box = el(`<div class="composer">
+      <div class="row" style="margin:0;padding:0;border:none">
+        <input class="field title" placeholder="卡的名字，比如「写给在意的人」" style="margin:0;flex:1" />
+        <button class="btn small" id="mk">建卡</button>
+      </div>
+      <div class="rulerow" style="margin-top:10px">
+        <span class="rulelabel">类型</span>
+        <div class="picker" id="kind"></div>
+      </div>
+      <div class="keyhint" id="kindhint"></div>
+      <div class="rulerow" style="margin-top:8px">
+        <span class="rulelabel">标签</span>
+        <div class="picker" id="qtags"></div>
+      </div>
+      <div class="keyhint">选中的每个标签各成一条分享，分享名就是标签名。要交集或排除，建完卡再用「加分享」。</div>
+    </div>`);
+  let kind = 'private';
+  const chosen = new Set();
+
+  const KIND_HINT = {
+    private: '需登录：读者用手机号登录后输入 8 位邀请码。会留下持卡记录（你看不到，数据层保留）。',
+    open: '免登录：有链接就能看，不需要账号。数据层不留任何读者记录——这也意味着无法逐个撤回，只能轮换链接或删卡。',
+  };
+  const drawKind = () => {
+    const h = box.querySelector('#kind');
+    h.innerHTML = '';
+    [['private', '需登录'], ['open', '免登录']].forEach(([k, label]) => {
+      const b = el(`<button class="pick ${kind === k ? 'on' : ''}">${label}</button>`);
+      b.onclick = () => { kind = k; drawKind(); };
+      h.appendChild(b);
+    });
+    box.querySelector('#kindhint').textContent = KIND_HINT[kind];
+  };
+  const drawTags = () => {
+    const h = box.querySelector('#qtags');
+    h.innerHTML = '';
+    state.tags.forEach((t) => {
+      const b = el(`<button class="pick ${chosen.has(t.id) ? 'on' : ''}">${esc(t.name)}</button>`);
+      b.onclick = () => { chosen.has(t.id) ? chosen.delete(t.id) : chosen.add(t.id); drawTags(); };
+      h.appendChild(b);
+    });
+    if (state.tags.length === 0) h.appendChild(el('<span class="keyhint">还没有标签 —— 先去「库」给笔记打几个。</span>'));
+  };
+  drawKind();
+  drawTags();
+
+  box.querySelector('#mk').onclick = async () => {
+    const title = box.querySelector('.title').value.trim();
+    if (!title) { alert('给卡起个名字'); return; }
+    if (chosen.size === 0) { alert('至少选一个标签，否则这张卡什么都看不到。'); return; }
+    const btn = box.querySelector('#mk');
+    btn.disabled = true;
+    const r = await post('/api/cards', {
+      title,
+      kind,
+      shares: [...chosen].map((id) => ({ name: tagName(id), include: [id] })),
+    });
+    btn.disabled = false;
+    if (r.status === 201) {
+      box.querySelector('.title').value = '';
+      chosen.clear(); drawTags();
+      loadCards();
+    } else alert('建不了：' + (r.body?.error || r.status));
+  };
+  host.appendChild(box);
+}
+
 /* ---------------- 启动 ---------------- */
 
 async function refreshCounts() {
@@ -341,7 +634,7 @@ async function refreshCounts() {
 }
 
 function readHash() {
-  const m = location.hash.match(/^#\/(library|inbox)$/);
+  const m = location.hash.match(/^#\/(library|inbox|cards)$/);
   state.view = m ? m[1] : 'library';
 }
 
