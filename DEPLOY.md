@@ -8,8 +8,9 @@
 # 1) 装 Docker（含 compose 插件）
 curl -fsSL https://get.docker.com | sh
 
-# 2) 拉代码（私有仓库：用 GitHub fine-grained token，Contents: Read 权限）
-git clone https://<GITHUB_TOKEN>@github.com/outsiderrr/See-Me.git /opt/see-me
+# 2) 拉代码（仓库已公开，普通 clone 即可，不需要 token）
+sudo git clone https://github.com/outsiderrr/See-Me.git /opt/see-me
+sudo chown -R "$USER" /opt/see-me
 cd /opt/see-me
 
 # 3) 配置密钥
@@ -25,7 +26,12 @@ curl -s http://localhost/api/auth/request-code -X POST \
 docker compose logs app | tail -5   # 应看到 [sms:dev] 验证码
 ```
 
-之后浏览器打开 `http://<服务器公网IP>/` 就是 B 端阅读页。
+之后浏览器打开 `http://<服务器公网IP>/` 就是 B 端登录阅读页；免登录卡的链接是
+`http://<服务器公网IP>/c/<14位slug>`（slug 在 A 端建 open 卡时返回）。
+
+> ⚠️ **上 HTTPS 之前别把真实的免登录链接发出去。** slug 就是这张卡的全部凭证，
+> 明文 HTTP 会把它暴露在链路上的任何一跳。自己测试无妨，对外分享等 P1 的
+> 域名 + Caddy 落地。
 
 ## 日常
 
