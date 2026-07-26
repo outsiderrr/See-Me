@@ -30,7 +30,8 @@ noteRoutes.get('/', async (c) => {
   const userId = c.get('userId')!;
   const tagId = c.req.query('tagId') || undefined;
   const q = c.req.query('q') || undefined;
-  const notes = await Notes.listNotes(userId, { tagId, q });
+  const untagged = c.req.query('untagged') === '1';
+  const notes = await Notes.listNotes(userId, { tagId, q, untagged });
   return c.json({ notes: notes.map(noteDto) });
 });
 
