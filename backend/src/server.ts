@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { readFile } from 'node:fs/promises';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
@@ -10,6 +11,9 @@ import { noteRoutes } from './routes/notes';
 import { tagRoutes } from './routes/tags';
 import { cardRoutes } from './routes/cards';
 import { readerRoutes } from './routes/reader';
+import { publicRoutes } from './routes/public';
+
+let readerShell: string | null = null;
 
 export function buildApp() {
   const app = new Hono<AuthVars>();
@@ -31,6 +35,15 @@ export function buildApp() {
   app.route('/api/tags', tagRoutes);
   app.route('/api/cards', cardRoutes);
   app.route('/api', readerRoutes);
+
+  // Open cards: JSON under /public/*, mounted OUTSIDE the /api/* auth middleware so
+  // no session is ever read on that path, and the pretty link at /c/<slug>.
+  app.route('/public', publicRoutes);
+  app.get('/c/:slug', async (c) => {
+    readerShell ??= await readFile('./public/index.html', 'utf8');
+    c.header('X-Robots-Tag', 'noindex, nofollow');
+    return c.html(readerShell);
+  });
 
   app.get('/api/me', requireAuth, async (c) => {
     const userId = c.get('userId')!;

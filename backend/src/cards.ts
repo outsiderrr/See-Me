@@ -1,10 +1,19 @@
 import { db } from './db';
 import { assertTagsOwned } from './own';
 import { generateUniqueInviteCode } from './inviteCode';
+import { generateUniquePublicSlug } from './publicSlug';
 import { readerFeed } from './permission/engine';
 import { cardShareTabs } from './permission/access';
 
 export type ShareInput = { name?: string; autoUpdate?: boolean; include: string[]; exclude?: string[] };
+
+/** 'private' = login card (invite code + CardHolder) | 'open' = link-only card. */
+export type CardKind = 'private' | 'open';
+
+export function parseCardKind(raw: unknown): CardKind | null {
+  if (raw === undefined || raw === null) return 'private';
+  return raw === 'private' || raw === 'open' ? raw : null;
+}
 
 const cardInclude = {
   shares: { include: { shareTags: { include: { tag: true } } }, orderBy: { createdAt: 'asc' } },
@@ -16,7 +25,11 @@ export function cardDto(card: CardWithShares) {
   return {
     id: card.id,
     title: card.title,
+    kind: card.kind,
     inviteCode: card.inviteCode,
+    // owner-facing only: the slug IS the card's credential, so it lives in A's
+    // own card payload and nowhere on any reader surface.
+    publicSlug: card.publicSlug,
     visibleUntil: card.visibleUntil,
     createdAt: card.createdAt,
     shares: card.shares.map((s) => ({
@@ -55,7 +68,7 @@ function shareTagRows(input: ShareInput) {
   ];
 }
 
-export async function createCard(userId: string, title: string, shares: ShareInput[]) {
+export async function createCard(userId: string, title: string, shares: ShareInput[], kind: CardKind = 'private') {
   await validateShares(userId, shares);
   const names = await tagNames([...new Set(shares.flatMap((s) => [...s.include, ...(s.exclude ?? [])]))]);
   const inviteCode = await generateUniqueInviteCode();
@@ -63,7 +76,9 @@ export async function createCard(userId: string, title: string, shares: ShareInp
     data: {
       userId,
       title,
+      kind,
       inviteCode,
+      publicSlug: kind === 'open' ? await generateUniquePublicSlug() : null,
       visibleUntil: new Date(),
       shares: {
         create: shares.map((s) => ({
@@ -90,12 +105,21 @@ export async function advanceTime(userId: string, cardId: string): Promise<boole
   return r.count > 0;
 }
 
-export async function rotateCode(userId: string, cardId: string): Promise<string | null> {
-  const card = await db.card.findFirst({ where: { id: cardId, userId }, select: { id: true } });
+/** Rotate a card's credentials. For an open card the link itself is the credential,
+ *  so the slug rotates with the code — the old /c/<slug> URL dies immediately. */
+export async function rotateCode(
+  userId: string,
+  cardId: string,
+): Promise<{ inviteCode: string; publicSlug: string | null } | null> {
+  const card = await db.card.findFirst({ where: { id: cardId, userId }, select: { id: true, kind: true } });
   if (!card) return null;
   const inviteCode = await generateUniqueInviteCode();
-  await db.card.update({ where: { id: cardId }, data: { inviteCode } });
-  return inviteCode;
+  const publicSlug = card.kind === 'open' ? await generateUniquePublicSlug() : null;
+  await db.card.update({
+    where: { id: cardId },
+    data: { inviteCode, ...(card.kind === 'open' ? { publicSlug } : {}) },
+  });
+  return { inviteCode, publicSlug };
 }
 
 async function ownsCard(userId: string, cardId: string): Promise<boolean> {

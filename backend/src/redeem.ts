@@ -14,8 +14,14 @@ export type RedeemResult =
 export async function redeemCode(userId: string, rawCode: unknown): Promise<RedeemResult> {
   const code = normalizeInviteCode(rawCode);
   if (!code) return { ok: false, reason: 'invalid' };
-  const card = await db.card.findUnique({ where: { inviteCode: code }, select: { id: true, userId: true } });
-  if (!card || card.userId === userId) return { ok: false, reason: 'unavailable' };
+  const card = await db.card.findUnique({
+    where: { inviteCode: code },
+    select: { id: true, userId: true, kind: true },
+  });
+  // An open card is link-only: binding a CardHolder to it would create exactly the
+  // reader record the kind is defined by not having (v2 §1 决策 3). Same opaque
+  // 'unavailable' as a missing card, so the response still leaks nothing.
+  if (!card || card.userId === userId || card.kind === 'open') return { ok: false, reason: 'unavailable' };
   await db.cardHolder.upsert({
     where: { cardId_userId: { cardId: card.id, userId } },
     create: { cardId: card.id, userId },
