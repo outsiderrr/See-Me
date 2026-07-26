@@ -35,7 +35,7 @@ export function buildApp() {
   const app = new Hono<AuthVars>();
 
   app.onError((err, c) => {
-    console.error('[see-me] unhandled error:', err);
+    console.error('[fathom] unhandled error:', err);
     return c.json({ error: 'internal' }, 500);
   });
 
@@ -43,7 +43,7 @@ export function buildApp() {
 
   app.get('/health', async (c) => {
     await db.$queryRaw`SELECT 1`;
-    return c.json({ ok: true, service: 'see-me-backend' });
+    return c.json({ ok: true, service: 'fathom-backend' });
   });
 
   app.route('/api/auth', authRoutes);
@@ -130,7 +130,7 @@ export function startServer() {
   const app = buildApp();
   const port = env.port();
   serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`[see-me] backend listening on http://localhost:${info.port}`);
+    console.log(`[fathom] backend listening on http://localhost:${info.port}`);
   });
   return app;
 }

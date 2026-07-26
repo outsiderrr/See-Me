@@ -1,5 +1,5 @@
-// See Me — B (reader) web. Vanilla JS, zero-pressure: no likes/comments/receipts.
-const TOKEN_KEY = 'see_me_token';
+// Fathom（潜心）— B (reader) web. Vanilla JS, zero-pressure: no likes/comments/receipts.
+const TOKEN_KEY = 'fathom_token';
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 const clearToken = () => localStorage.removeItem(TOKEN_KEY);
@@ -72,7 +72,7 @@ function renderLogin() {
   let phone = '';
   const view = el(`
     <div class="screen center">
-      <div class="brand">See Me</div>
+      <div class="brand">Fathom</div>
       <p class="hint">别人想了解你时，来这里看。</p>
       <div class="form">
         <input id="phone" class="input" placeholder="手机号" inputmode="tel" autocomplete="tel" />
@@ -141,7 +141,7 @@ async function renderCard(base, { open = false } = {}) {
         <div class="pub-head"><div id="cfrom" class="pub-from"></div><div id="ctitle" class="pub-title">…</div></div>
         <div id="tabs" class="tabs"></div>
         <div id="feed" class="feed"></div>
-        <div class="pub-foot">See Me · 你不必回应，也不必现在看完。</div>
+        <div class="pub-foot">Fathom · 你不必回应，也不必现在看完。</div>
       </div>`
     : `<div class="screen">
         <div class="topbar"><a class="back" href="#">‹</a><div id="ctitle" class="title">…</div></div>
@@ -151,14 +151,14 @@ async function renderCard(base, { open = false } = {}) {
   const head = await api(base);
   if (!open && head.status === 401) { clearToken(); return route(); }
   if (head.status !== 200) {
-    document.getElementById('ctitle').textContent = open ? 'See Me' : '';
+    document.getElementById('ctitle').textContent = open ? 'Fathom' : '';
     document.getElementById('feed').innerHTML = head.status === 429
       ? '<div class="empty">来得有点急，过一会儿再看。</div>'
       : `<div class="empty">${open ? '这个链接已经失效了。' : '这张卡看不了了。'}</div>`;
     return;
   }
   document.getElementById('ctitle').textContent = head.body.title;
-  document.title = head.body.title || 'See Me';
+  document.title = head.body.title || 'Fathom';
   if (open && head.body.ownerName) document.getElementById('cfrom').textContent = head.body.ownerName + ' 分享给你';
 
   const tabs = [{ id: 'recent', name: '最近更新' }, ...(head.body.tabs || [])];

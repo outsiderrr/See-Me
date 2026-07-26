@@ -1,7 +1,7 @@
-// See Me 控制台（A 端）。Vanilla JS，纸页设计。
+// Fathom（潜心）控制台（A 端）。Vanilla JS，纸页设计。
 // 这里是"发布决策"发生的地方：给一条笔记打标签，就是决定它可能被谁看到。
 // 无标签的笔记匹配不上任何分享的必含集 ⇒ 任何卡都看不到（v2 §1 决策 7）。
-const TOKEN_KEY = 'see_me_console_token';
+const TOKEN_KEY = 'fathom_console_token';
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 const clearToken = () => localStorage.removeItem(TOKEN_KEY);
@@ -40,7 +40,7 @@ function renderGate() {
   let phone = '';
   const v = el(`
     <div class="gate">
-      <div class="mark">See Me</div>
+      <div class="mark">Fathom</div>
       <div class="sub">控制台 —— 写、审、决定谁能看见。</div>
       <input id="phone" class="field" placeholder="手机号" inputmode="tel" autocomplete="tel" />
       <div id="codeRow" style="display:none"><input id="code" class="field" placeholder="6 位验证码" inputmode="numeric" /></div>
@@ -77,7 +77,7 @@ function renderShell() {
   app().innerHTML = `
     <div class="shell">
       <aside class="side">
-        <div class="mark">See Me</div>
+        <div class="mark">Fathom</div>
         <nav class="nav" id="nav"></nav>
         <div class="who" id="who"></div>
       </aside>

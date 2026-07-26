@@ -1,5 +1,13 @@
-# See Me production stack: Postgres + backend (API + B reading web).
+# Fathom（潜心）production stack: Postgres + backend (API + B reading web).
 # On the server:  cp .env.server.example .env  → fill secrets → docker compose up -d --build
+
+# Project name pinned deliberately. Compose otherwise derives it from the directory
+# name and prefixes volumes with it, so renaming /opt/see-me would make Compose look
+# for a `<newname>_db-data` volume, not find it, and silently start on an EMPTY
+# database while the real one sits orphaned. Pinning it decouples the data from the
+# path: the directory can be renamed freely, the volume stays `see-me_db-data`.
+name: see-me
+
 services:
   db:
     image: postgres:18

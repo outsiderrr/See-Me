@@ -4,7 +4,7 @@ import { startLocalPg } from './localPg';
 
 // 1) boot embedded postgres (sets process.env.DATABASE_URL)
 const { url } = await startLocalPg();
-console.log(`[see-me] local postgres up: ${url}`);
+console.log(`[fathom] local postgres up: ${url}`);
 
 // 2) apply existing migrations
 execSync('npx prisma migrate deploy', {
