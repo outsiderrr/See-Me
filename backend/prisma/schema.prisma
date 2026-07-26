@@ -76,12 +76,18 @@ model NoteTag {
   @@map("note_tags")
 }
 
+// kind: 'private' = login card (OTP + 8-char invite code, CardHolder binding) |
+// 'open' = link-only card read at /c/<public_slug> with no account and no reader
+// record anywhere. A DB CHECK constraint (see the open-cards migration) keeps the
+// two columns in lockstep: only an open card may carry a slug, and it always does.
 model Card {
   id           String   @id @default(cuid())
   userId       String   @map("user_id")
   title        String
+  kind         String   @default("private")
   visibleUntil DateTime @map("visible_until") @db.Timestamptz(6)
   inviteCode   String   @unique @map("invite_code")
+  publicSlug   String?  @unique @map("public_slug")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)

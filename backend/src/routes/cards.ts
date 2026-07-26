@@ -27,14 +27,16 @@ cardRoutes.get('/', async (c) => {
 
 cardRoutes.post('/', async (c) => {
   const userId = c.get('userId')!;
-  const { title, shares } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  const { title, kind, shares } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
   if (typeof title !== 'string' || !title.trim()) return c.json({ error: 'bad_title' }, 400);
+  const cardKind = Cards.parseCardKind(kind);
+  if (!cardKind) return c.json({ error: 'bad_kind' }, 400);
   const parsed = Array.isArray(shares) ? shares.map(parseShare) : [];
   if (parsed.some((s) => s === null) || parsed.some((s) => s!.include.length === 0)) {
     return c.json({ error: 'bad_shares' }, 400);
   }
   try {
-    const card = await Cards.createCard(userId, title.trim(), parsed as ShareInput[]);
+    const card = await Cards.createCard(userId, title.trim(), parsed as ShareInput[], cardKind);
     return c.json({ card: Cards.cardDto(card) }, 201);
   } catch (e) {
     const m = (e as Error).message;
@@ -82,8 +84,8 @@ cardRoutes.delete('/:id/shares/:shareId', async (c) => {
 });
 
 cardRoutes.post('/:id/rotate-code', async (c) => {
-  const code = await Cards.rotateCode(c.get('userId')!, c.req.param('id'));
-  return code ? c.json({ inviteCode: code }) : c.json({ error: 'not_found' }, 404);
+  const rotated = await Cards.rotateCode(c.get('userId')!, c.req.param('id'));
+  return rotated ? c.json(rotated) : c.json({ error: 'not_found' }, 404);
 });
 
 cardRoutes.get('/:id/preview', async (c) => {

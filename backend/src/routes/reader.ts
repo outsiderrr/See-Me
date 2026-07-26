@@ -1,28 +1,17 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
-import { getConnInfo } from '@hono/node-server/conninfo';
 import type { AuthVars } from '../auth/middleware';
 import { requireAuth } from '../auth/middleware';
+import { clientIp } from '../lib/clientIp';
 import { consume } from '../lib/rateLimit';
 import { redeemCode } from '../redeem';
 import { readerCardAccess, cardShareTabs, shareInCard } from '../permission/access';
-import { readerCanAccessNote, readerFeed } from '../permission/engine';
+import { parseCursor, readerCanAccessNote, readerFeed } from '../permission/engine';
 import { db } from '../db';
 
 export const readerRoutes = new Hono<AuthVars>();
 readerRoutes.use('*', requireAuth);
 
 const PAGE = 20;
-
-function clientIp(c: Context): string {
-  const xff = c.req.header('x-forwarded-for');
-  if (xff) return xff.split(',')[0].trim();
-  try {
-    return getConnInfo(c).remote.address ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
 
 /**
  * Redeem an invite code. Multi-layer rate limit (spec §5): per-user + per-IP + global,
@@ -100,22 +89,13 @@ readerRoutes.get('/read/:cardId/notes', async (c) => {
     tabShareId = tab;
   }
 
-  // cursor = "<createdAtRaw>_<id>"; createdAtRaw and cuid contain no '_'. A malformed
-  // cursor is simply ignored (page 1) — no Date parsing, so it can never crash the feed.
-  let cursor: { createdAtRaw: string; id: string } | undefined;
-  const craw = c.req.query('cursor');
-  if (craw) {
-    const idx = craw.lastIndexOf('_');
-    if (idx > 0 && idx < craw.length - 1) cursor = { createdAtRaw: craw.slice(0, idx), id: craw.slice(idx + 1) };
-  }
-
   const { notes, nextCursor } = await readerFeed({
     cardId: card.id,
     cardOwnerId: card.userId,
     visibleUntil: card.visibleUntil,
     tabShareId,
     limit: PAGE,
-    cursor,
+    cursor: parseCursor(c.req.query('cursor')),
   });
   return c.json({ notes, nextCursor });
 });

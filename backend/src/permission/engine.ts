@@ -28,6 +28,18 @@ export interface FeedParams {
 
 const RAW_TS = `to_char(n.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
+/**
+ * Cursor = "<createdAtRaw>_<id>" (spec §3.2); createdAtRaw and cuid contain no '_'.
+ * A malformed cursor is simply ignored (page 1) — no Date parsing, so it can never
+ * crash a feed. Shared by the login and the no-login reader paths.
+ */
+export function parseCursor(raw?: string): { createdAtRaw: string; id: string } | undefined {
+  if (!raw) return undefined;
+  const idx = raw.lastIndexOf('_');
+  if (idx <= 0 || idx >= raw.length - 1) return undefined;
+  return { createdAtRaw: raw.slice(0, idx), id: raw.slice(idx + 1) };
+}
+
 export async function loadShares(cardId: string): Promise<ShareDef[]> {
   const shares = await db.share.findMany({ where: { cardId }, include: { shareTags: true } });
   return shares.map((s) => ({

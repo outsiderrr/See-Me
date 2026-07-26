@@ -1,4 +1,6 @@
 import { db } from '../db';
+import { INVITE_ALPHABET } from '../inviteCode';
+import type { CardKind } from '../cards';
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
@@ -7,8 +9,8 @@ export async function resetDb() {
 }
 
 let seq = 0;
-export async function makeUser() {
-  return db.user.create({ data: { phone: `+8613900${String(seq++).padStart(6, '0')}` } });
+export async function makeUser(displayName?: string) {
+  return db.user.create({ data: { phone: `+8613900${String(seq++).padStart(6, '0')}`, displayName } });
 }
 
 export async function makeTag(userId: string, name: string) {
@@ -31,12 +33,36 @@ export async function makeNote(userId: string, body: string, tagIds: string[], c
 let codeSeq = 0;
 export type ShareSpec = { name?: string; auto?: boolean; include: string[]; exclude?: string[] };
 
-export async function makeCard(userId: string, visibleUntil: Date, shares: ShareSpec[]) {
+/** Deterministic counter rendered in the real charset — fixtures must be codes the
+ *  production normalizers actually accept (0/1/I/L/O are not in the alphabet). */
+function base31(n: number, width: number): string {
+  let out = '';
+  for (let i = 0; i < width; i++) {
+    out = INVITE_ALPHABET[n % INVITE_ALPHABET.length] + out;
+    n = Math.floor(n / INVITE_ALPHABET.length);
+  }
+  return out;
+}
+
+export function testSlug(): string {
+  return 'PUBTEST2' + base31(slugSeq++, 6);
+}
+let slugSeq = 0;
+
+export async function makeCard(
+  userId: string,
+  visibleUntil: Date,
+  shares: ShareSpec[],
+  opts: { kind?: CardKind; publicSlug?: string; title?: string } = {},
+) {
+  const kind = opts.kind ?? 'private';
   return db.card.create({
     data: {
       userId,
-      title: 'card',
-      inviteCode: `TEST${String(codeSeq++).padStart(4, '0')}`.slice(0, 8),
+      title: opts.title ?? 'card',
+      kind,
+      inviteCode: 'TEST' + base31(codeSeq++, 4),
+      publicSlug: kind === 'open' ? (opts.publicSlug ?? testSlug()) : null,
       visibleUntil,
       shares: {
         create: shares.map((s, i) => ({
@@ -52,5 +78,21 @@ export async function makeCard(userId: string, visibleUntil: Date, shares: Share
       },
     },
     include: { shares: true },
+  });
+}
+
+export async function makeOpenCard(
+  userId: string,
+  visibleUntil: Date,
+  shares: ShareSpec[],
+  opts: { publicSlug?: string; title?: string } = {},
+) {
+  const card = await makeCard(userId, visibleUntil, shares, { ...opts, kind: 'open' });
+  return card as typeof card & { publicSlug: string };
+}
+
+export async function makeImage(noteId: string, sortOrder = 0) {
+  return db.noteImage.create({
+    data: { noteId, mimeType: 'image/png', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]), sortOrder },
   });
 }
