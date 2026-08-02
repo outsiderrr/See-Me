@@ -69,7 +69,7 @@ suggest: [私密, 价值观]
 
 ## 写完必须自查
 
-在仓库目录（`/Users/outsider/Desktop/see me`）下跑：
+在仓库目录（`~/通用空间/fathom`）下跑：
 
 ```
 node tools/import/import.mjs check ~/通用空间/潜心/库/<你写的文件>.md
