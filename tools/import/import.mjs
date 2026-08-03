@@ -26,9 +26,9 @@ import { resolve, dirname, join, basename } from 'node:path';
 
 const KINDS = new Set(['voice', 'chat']);
 const KIND_LABEL = { voice: '录音', chat: '对话' };
-// suggest 词表 = 用户已有标签（2026-08 快照，与 PROMPT.md 保持一致）。
-// 只校验 suggest（本轮不上传），所以词表外只警告不报错。
-const SUGGEST_VOCAB = new Set(['日常', '想法', '私密', '价值观', '童年', '可分享']);
+// suggest 词表 = 用户已有标签。刻意**不写死在这里**：仓库公开，作者内部标签名
+// 属红线信息（v1 spec §4），词表放湖里 .import-config.json 的 tags 字段，
+// check 运行时读；读不到就跳过词表校验（suggest 本轮反正不上传）。
 const MAX_SUGGEST = 2;
 // 逐字重合阈值（对 2026-W29-试跑 的 54 条实测校准）。语义想清楚了：原话本身已经
 // 凝练时，提炼如实保留一句原句是忠实而不是偷懒（54 条里有 3 条正是这种，比例 100%
@@ -73,8 +73,13 @@ export function parseLibraryFile(text) {
     const bodySeg = segments[i + 1];
     const fmText = fmSeg.lines.join('\n');
     if (!/^\s*source\s*[:：]/m.test(fmText)) {
-      errors.push(`第 ${fmSeg.start} 行：应为 frontmatter（含 source:）的段落不含 source —— ` +
-        `多半是正文里出现了独占一行的 ---`);
+      // 两种常见成因分开说，别把用户往错误方向引
+      if (i === segments.length - 1 && !fmText.trim()) {
+        errors.push(`第 ${fmSeg.start - 1} 行：文件末尾有多余的 ---，删掉即可`);
+      } else {
+        errors.push(`第 ${fmSeg.start} 行：应为 frontmatter（含 source:）的段落不含 source —— ` +
+          `多半是**上一条记录**的正文里出现了独占一行的 ---（那条的正文已被截断；修复前整批拒绝入库）`);
+      }
       continue;
     }
     const meta = {};
@@ -116,8 +121,8 @@ const isIsoDate = (s) => {
   return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
 };
 
-/** 结构校验：check 和 ingest 都跑。返回该记录的错误列表（空 = 干净）。 */
-export function validateStructural(r) {
+/** 结构校验：check 和 ingest 都跑。vocab 传 null = 跳过词表校验（ingest 侧读不到湖）。 */
+export function validateStructural(r, vocab = null) {
   const errs = [];
   const warns = [];
   if (!r.source) errs.push('缺 source');
@@ -135,8 +140,10 @@ export function validateStructural(r) {
   }
 
   if (r.suggest.length > MAX_SUGGEST) warns.push(`suggest 超过 ${MAX_SUGGEST} 个：[${r.suggest.join(', ')}]`);
-  for (const s of r.suggest) {
-    if (!SUGGEST_VOCAB.has(s)) warns.push(`suggest「${s}」不在词表（词表见 PROMPT.md；本轮不上传，仅提醒）`);
+  if (vocab) {
+    for (const s of r.suggest) {
+      if (!vocab.has(s)) warns.push(`suggest「${s}」不在词表（词表在湖 .import-config.json 的 tags；本轮不上传，仅提醒）`);
+    }
   }
   return { errs, warns };
 }
@@ -170,6 +177,15 @@ export const renderNoteBody = (r) =>
 
 // ---------- check：Mac 侧全量校验 ----------
 
+/** chat 头部的日期多是「7月21日」这种月日——年份从采集周目录名（2026-Wnn）推。 */
+function chatDateFromShown(shownTime, source) {
+  if (!shownTime) return null;
+  const md = String(shownTime).match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  const y = source.match(/(\d{4})-W\d{2}\//);
+  if (!md || !y) return null;
+  return `${y[1]}-${md[1].padStart(2, '0')}-${md[2].padStart(2, '0')}`;
+}
+
 async function loadRawText(lake, source, cache) {
   if (cache.has(source)) return cache.get(source);
   const path = join(lake, '原始', source);
@@ -185,12 +201,20 @@ async function loadRawText(lake, source, cache) {
     entry = {
       exists: true,
       overlap: contentChars(overlapBase),
+      // 素材自带的日期：dated 是决策 8 里对读者可见的原始日期，唯一能独立复核
+      // 它的地方就是这里——不能只信提示词的自觉（PROMPT 红线 6：取不到别猜）。
+      rawDate: parsed.kind === 'voice'
+        ? parsed.recordedOn
+        : parsed.occurredOn ?? chatDateFromShown(parsed.shownTime, source),
       // 方括号段的内容一个字都不许进产物；两个字符以下的段（如单字语气词）
       // 撞车概率太高，只比对长度 >= 3 的。
       uncertainSpans: (parsed.uncertainSpans ?? []).filter((s) => contentChars(s).length >= 3),
     };
-  } catch {
-    entry = { exists: false, overlap: '', uncertainSpans: [] };
+  } catch (e) {
+    // ENOENT = 素材真不存在；其他异常（parse.mjs 缺失/抛错、权限）要如实报，
+    // 不然用户会被引导去湖里找一个明明存在的文件
+    entry = { exists: false, overlap: '', uncertainSpans: [], rawDate: null,
+      error: e?.code === 'ENOENT' && String(e?.path ?? '').includes(source) ? null : e };
   }
   cache.set(source, entry);
   return entry;
@@ -202,25 +226,52 @@ async function cmdCheck(file, opts) {
   const { records, errors: parseErrors } = parseLibraryFile(text);
 
   const problems = [...parseErrors.map((e) => ({ level: '错误', msg: e }))];
+  if (!records.length) problems.push({ level: '错误', msg: '0 条记录——要导入的库文件不该是空的（是不是拿错文件了？）' });
+
+  // 词表在湖配置里（不入公开仓库）；读不到就跳过词表校验
+  let vocab = null;
+  try {
+    const cfg = JSON.parse(await readFile(join(lake, '.import-config.json'), 'utf8'));
+    if (Array.isArray(cfg.tags) && cfg.tags.length) vocab = new Set(cfg.tags);
+  } catch { /* 没配置就不查 */ }
+  if (!vocab) console.log('[信息] 湖 .import-config.json 没有 tags 词表，跳过 suggest 词表校验');
+
   const rawCache = new Map();
   const seenFp = new Map();
+  const seenKey = new Map(); // (source+标题) 是 ingest 改动检测的承重键，同文件内撞键必须拦
+  const warnedNoDate = new Set();
   const overlapStats = [];
 
   for (const [i, r] of records.entries()) {
     const tag = `#${i + 1}（第 ${r.line} 行「${r.title || r.source || '?'}」）`;
-    const { errs, warns } = validateStructural(r);
+    const { errs, warns } = validateStructural(r, vocab);
     for (const e of errs) problems.push({ level: '错误', msg: `${tag}：${e}` });
     for (const w of warns) problems.push({ level: '警告', msg: `${tag}：${w}` });
     if (errs.length) continue;
 
     const fp = fingerprint(r);
-    if (seenFp.has(fp)) problems.push({ level: '错误', msg: `${tag}：与 #${seenFp.get(fp)} 完全重复` });
-    seenFp.set(fp, i + 1);
+    const key = `${r.source}\n${norm(r.title)}`;
+    if (seenFp.has(fp)) {
+      problems.push({ level: '错误', msg: `${tag}：与 #${seenFp.get(fp)} 完全重复` });
+    } else if (seenKey.has(key)) {
+      problems.push({ level: '错误', msg: `${tag}：与 #${seenKey.get(key)} 同源同标题（正文不同）——` +
+        `导入器会把后来的这条误判为"改动"而丢弃，给它们起不同的标题` });
+    }
+    if (!seenFp.has(fp)) seenFp.set(fp, i + 1);
+    if (!seenKey.has(key)) seenKey.set(key, i + 1);
 
     const raw = await loadRawText(lake, r.source, rawCache);
     if (!raw.exists) {
-      problems.push({ level: '错误', msg: `${tag}：原始素材不存在：原始/${r.source}` });
+      problems.push({ level: '错误', msg: raw.error
+        ? `${tag}：读取/解析原始素材失败：${raw.error.message}`
+        : `${tag}：原始素材不存在：原始/${r.source}` });
       continue;
+    }
+    if (raw.rawDate && raw.rawDate !== r.dated) {
+      problems.push({ level: '错误', msg: `${tag}：dated=${r.dated} 与素材头部日期 ${raw.rawDate} 不符（决策 8：首行日期必须是素材原始日期）` });
+    } else if (!raw.rawDate && !warnedNoDate.has(r.source)) {
+      warnedNoDate.add(r.source); // 一份素材只提醒一次，别刷屏
+      problems.push({ level: '警告', msg: `${tag}：素材「${r.source}」头部没有可解析的日期，无法复核 dated——人眼确认不是猜的` });
     }
     const noteChars = contentChars(`${r.title}${r.body}`);
     for (const span of raw.uncertainSpans) {
@@ -285,7 +336,10 @@ async function cmdCheck(file, opts) {
 async function loadState(path) {
   try {
     const s = JSON.parse(await readFile(path, 'utf8'));
-    if (s.version !== 1 || typeof s.imported !== 'object') throw new Error('bad state');
+    // typeof null === 'object'，Array 也是——半损坏的 state 必须落进下面的人话报错
+    if (s.version !== 1 || !s.imported || typeof s.imported !== 'object' || Array.isArray(s.imported)) {
+      throw new Error('bad state');
+    }
     return s;
   } catch (e) {
     if (e.code === 'ENOENT') return { version: 1, imported: {} };
@@ -325,6 +379,10 @@ async function cmdIngest(file, opts) {
   if (parseErrors.length) {
     for (const e of parseErrors) console.error(`[错误] ${e}`);
     console.error('文件结构有错，先修再导。');
+    process.exit(1);
+  }
+  if (!records.length) {
+    console.error('[错误] 0 条记录——要导入的库文件不该是空的（是不是拿错文件了？）');
     process.exit(1);
   }
 
