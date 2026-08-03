@@ -108,13 +108,14 @@ export function parseChat(text, filePath, fallbackDate) {
     title: firstHeading(text) || basename(filePath, '.md'),
     project: pick('项目') || null,
     orderInProject: Number(pick('项目内顺序')) || null,
-    shownTime: pick('网页显示时间') || null,
+    // W29 叫「网页显示时间」，W30 起叫「项目页显示日期」——上游漂移，两个都收
+    shownTime: pick('网页显示时间', '显示日期') || null,
     // 对话链接进湖留档，但**不进笔记正文**：它是 chatgpt.com 的链接，
     // 对读者既无意义又可能泄露作者的会话标识。
     link: pick('对话链接') || null,
     attachment: pick('附件') || null,
     note: pick('说明') || null,
-    occurredOn: isoDate(pick('网页显示时间')) || fallbackDate,
+    occurredOn: isoDate(pick('网页显示时间', '显示日期')) || fallbackDate,
     turns,
     userTurns: turns.filter((t) => t.role === 'user'),
     empty: turns.filter((t) => t.role === 'user').length === 0,
