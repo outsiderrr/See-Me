@@ -30,7 +30,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const md = window.markdownit({ html: false, breaks: true, linkify: true });
 md.disable('image');
 
-const state = { me: null, tags: [], view: 'library', tagId: null, q: '' };
+const state = { me: null, tags: [], view: 'library', tagId: null, q: '', tagQ: '' };
 
 /* ---------------- 登录 ---------------- */
 
@@ -79,11 +79,17 @@ function renderShell() {
       <aside class="side">
         <div class="mark">Fathom</div>
         <nav class="nav" id="nav"></nav>
+        <div class="tagbox">
+          <input id="tagsearch" class="tagsearch" placeholder="搜索或新建标签" />
+          <div class="taglist" id="taglist"></div>
+        </div>
         <div class="who" id="who"></div>
       </aside>
       <main class="main" id="main"></main>
     </div>`;
   drawNav();
+  mountTagSearch();
+  drawTagList();
   drawWho();
 }
 
@@ -100,8 +106,115 @@ function drawNav(counts = {}) {
   VIEWS.forEach((v) => {
     const a = el(`<a href="#/${v.id}" class="${state.view === v.id ? 'on' : ''}">
       <span>${esc(v.label)}</span>${counts[v.id] != null ? `<span class="count">${counts[v.id]}</span>` : ''}</a>`);
+    if (v.id === 'library') {
+      // 已在库里再点「库」= 回到全部（清掉标签筛选）。hash 不变不会触发重绘，手动来。
+      a.onclick = () => {
+        if (state.view === 'library' && state.tagId) { state.tagId = null; drawTagList(); renderMain(); }
+      };
+    }
     nav.appendChild(a);
   });
+}
+
+/* ---------------- 左栏标签列（flomo 式：点击=浏览筛选，拖动=贴标签） ---------------- */
+
+async function refreshTags() {
+  const r = await get('/api/tags');
+  if (r.status === 200) { state.tags = r.body?.tags || []; drawTagList(); }
+}
+
+function mountTagSearch() {
+  const input = document.getElementById('tagsearch');
+  if (!input) return;
+  input.value = state.tagQ;
+  input.oninput = () => { state.tagQ = input.value.trim(); drawTagList(); };
+  input.onkeydown = async (e) => {
+    if (e.key === 'Escape') { input.value = ''; state.tagQ = ''; drawTagList(); return; }
+    if (e.key !== 'Enter') return;
+    const name = input.value.trim();
+    if (!name) return;
+    const exact = state.tags.find((t) => t.name === name);
+    if (exact) { selectTag(exact.id); return; }
+    await createTagByName(name);
+  };
+}
+
+async function createTagByName(name) {
+  const r = await post('/api/tags', { name });
+  if (r.status === 201) {
+    const input = document.getElementById('tagsearch');
+    if (input) { input.value = ''; state.tagQ = ''; }
+    await refreshTags(); // 要计数和排序的真值，别自己拼
+  } else alert(r.status === 409 ? '这个标签已经有了' : '建不了');
+}
+
+function selectTag(id) {
+  state.tagId = state.tagId === id ? null : id;
+  drawTagList();
+  if (state.view !== 'library') { location.hash = '#/library'; return; } // hashchange 那边会重画
+  renderMain();
+}
+
+function tagRow(t) {
+  const row = el(`<div class="tagrow ${state.tagId === t.id ? 'on' : ''}" draggable="true" title="点击筛选，拖到右边贴标签">
+      <span class="thash">#</span><span class="tname">${esc(t.icon ? t.icon + ' ' + t.name : t.name)}</span>
+      <button class="pin" title="${t.isPinned ? '取消置顶' : '置顶'}">${t.isPinned ? '↓' : '置顶'}</button>
+      <span class="tcount">${t.noteCount ?? ''}</span>
+    </div>`);
+  row.onclick = () => selectTag(t.id);
+  const pin = row.querySelector('.pin');
+  pin.onclick = async (e) => {
+    e.stopPropagation();
+    const r = await patch('/api/tags/' + encodeURIComponent(t.id), { pinned: !t.isPinned });
+    if (r.status === 200) refreshTags();
+  };
+
+  // 拖动 = 把标签带去右边的某条笔记。自绘一个小拖影，比浏览器默认的整行截图轻得多。
+  row.ondragstart = (e) => {
+    e.dataTransfer.setData('application/x-fathom-tag', t.id);
+    e.dataTransfer.setData('text/plain', t.name); // 兜底：有些环境只认 text/plain
+    e.dataTransfer.effectAllowed = 'copy';
+    const ghost = el(`<div class="drag-ghost">#${esc(t.name)}</div>`);
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 12, 14);
+    row.classList.add('dragging');
+    document.body.classList.add('tagdrag');
+    row._ghost = ghost;
+  };
+  row.ondragend = () => {
+    row.classList.remove('dragging');
+    document.body.classList.remove('tagdrag');
+    row._ghost?.remove();
+  };
+  return row;
+}
+
+function drawTagList() {
+  const host = document.getElementById('taglist');
+  if (!host) return;
+  host.innerHTML = '';
+  const q = state.tagQ.toLowerCase();
+  const match = (t) => !q || t.name.toLowerCase().includes(q);
+  const pinned = state.tags.filter((t) => t.isPinned && match(t));
+  const rest = state.tags.filter((t) => !t.isPinned && match(t));
+
+  if (pinned.length) {
+    host.appendChild(el('<div class="taggroup">置顶标签</div>'));
+    pinned.forEach((t) => host.appendChild(tagRow(t)));
+  }
+  if (rest.length) {
+    host.appendChild(el(`<div class="taggroup">${pinned.length ? '全部标签' : '标签'}</div>`));
+    rest.forEach((t) => host.appendChild(tagRow(t)));
+  }
+  const name = state.tagQ.trim();
+  if (name && !state.tags.some((t) => t.name === name)) {
+    const mk = el(`<div class="tagrow new"><span class="thash">+</span><span class="tname">回车新建「${esc(name)}」</span></div>`);
+    mk.onclick = () => createTagByName(name);
+    host.appendChild(mk);
+  }
+  if (!state.tags.length && !name) {
+    host.appendChild(el('<div class="keyhint" style="padding:4px 8px">还没有标签。\n在上面输入名字回车即建。</div>'));
+  }
 }
 
 function drawWho() {
@@ -140,39 +253,24 @@ async function renderMain() {
   if (state.view === 'cards') return renderCardsView();
   const main = document.getElementById('main');
   const inbox = state.view === 'inbox';
+  const filtered = !inbox && state.tagId ? state.tags.find((t) => t.id === state.tagId) : null;
   main.innerHTML = `
     <div class="head">
-      <h1>${inbox ? '收件箱' : '库'}</h1>
-      <span class="hint">${inbox ? '还没打标签的笔记 —— 任何卡都看不到它们' : '你写下的一切'}</span>
+      <h1>${filtered ? `<span class="hh">#</span> ${esc(filtered.name)}` : inbox ? '收件箱' : '库'}</h1>
+      <span class="hint">${inbox ? '还没打标签的笔记 —— 任何卡都看不到它们。从左边拖个标签过来即发布' : filtered ? '再点一下左边的标签回到全部' : '你写下的一切'}</span>
     </div>
     <div id="composer"></div>
     <div class="toolbar">
       <input id="q" class="search" placeholder="搜索正文…" value="${esc(state.q)}" />
-      <div class="picker" id="tagfilter"></div>
     </div>
     <div id="flow" class="loading">…</div>`;
 
   if (!inbox) mountComposer(document.getElementById('composer'));
-  drawTagFilter();
 
   const q = document.getElementById('q');
   let timer;
   q.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.q = q.value.trim(); loadFlow(); }, 220); };
   loadFlow();
-}
-
-function drawTagFilter() {
-  const box = document.getElementById('tagfilter');
-  if (!box || state.view === 'inbox') return;
-  box.innerHTML = '';
-  const all = el(`<button class="pick ${state.tagId ? '' : 'on'}">全部</button>`);
-  all.onclick = () => { state.tagId = null; drawTagFilter(); loadFlow(); };
-  box.appendChild(all);
-  state.tags.forEach((t) => {
-    const b = el(`<button class="pick ${state.tagId === t.id ? 'on' : ''}">${esc(t.name)}</button>`);
-    b.onclick = () => { state.tagId = state.tagId === t.id ? null : t.id; drawTagFilter(); loadFlow(); };
-    box.appendChild(b);
-  });
 }
 
 async function loadFlow() {
@@ -220,8 +318,25 @@ function entry(n) {
       </div>
     </article>`);
   const tagBox = node.querySelector('.tags');
-  if (n.tags.length) tagBox.innerHTML = n.tags.map((t) => `<span class="tag">${esc(t.name)}</span>`).join(' ');
-  else tagBox.innerHTML = '<span class="untagged">未打标签 · 任何卡都看不到</span>';
+  if (n.tags.length) {
+    n.tags.forEach((t) => {
+      const chip = el(`<span class="tag">${esc(t.name)}<button class="x" title="去掉这个标签">×</button></span>`);
+      chip.querySelector('.x').onclick = () => removeTagFromNote(node, n, t.id);
+      tagBox.appendChild(chip);
+    });
+  } else tagBox.innerHTML = '<span class="untagged">未打标签 · 任何卡都看不到</span>';
+
+  // 接住左栏拖来的标签。dragenter/leave 在子元素间会反复触发，用 relatedTarget 兜住。
+  const isTagDrag = (e) => [...(e.dataTransfer?.types || [])].includes('application/x-fathom-tag');
+  node.ondragover = (e) => { if (isTagDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } };
+  node.ondragenter = (e) => { if (isTagDrag(e)) node.classList.add('droptarget'); };
+  node.ondragleave = (e) => { if (!node.contains(e.relatedTarget)) node.classList.remove('droptarget'); };
+  node.ondrop = (e) => {
+    e.preventDefault();
+    node.classList.remove('droptarget');
+    const tagId = e.dataTransfer.getData('application/x-fathom-tag');
+    if (tagId) addTagToNote(node, n, tagId);
+  };
 
   const acts = node.querySelector('.acts');
   const mk = (label, cls, fn) => { const b = el(`<button class="${cls}">${label}</button>`); b.onclick = fn; acts.appendChild(b); };
@@ -233,6 +348,49 @@ function entry(n) {
     if (r.status === 200) loadFlow();
   });
   return node;
+}
+
+/* 拖拽/点 × 的就地更新：不整页刷新，滚动位置不动。
+   收件箱里贴上标签 = 这条完成审校，动画送走；库里去掉当前筛选的标签同理。 */
+
+function removeEntryAnimated(node) {
+  const group = node.closest('.daygroup');
+  node.classList.add('leaving');
+  setTimeout(() => {
+    node.remove();
+    if (group && !group.querySelector('.entry')) group.remove();
+    const flow = document.getElementById('flow');
+    if (flow && !flow.querySelector('.entry')) loadFlow(); // 空了让它画空态文案
+  }, 200);
+}
+
+async function addTagToNote(node, n, tagId) {
+  if (node.dataset.busy) return;
+  if (n.tags.some((t) => t.id === tagId)) { // 已有：不打接口，抖一下示意
+    node.classList.add('shake');
+    setTimeout(() => node.classList.remove('shake'), 300);
+    return;
+  }
+  node.dataset.busy = '1';
+  const r = await put(`/api/notes/${encodeURIComponent(n.id)}/tags`, { tagIds: [...n.tags.map((t) => t.id), tagId] });
+  delete node.dataset.busy;
+  if (r.status !== 200) return alert('没贴上，再试一次');
+  const updated = r.body.note;
+  if (state.view === 'inbox') { removeEntryAnimated(node); refreshCounts(); }
+  else node.replaceWith(entry(updated));
+  refreshTags(); // 左栏计数变了
+}
+
+async function removeTagFromNote(node, n, tagId) {
+  if (node.dataset.busy) return;
+  node.dataset.busy = '1';
+  const r = await put(`/api/notes/${encodeURIComponent(n.id)}/tags`, { tagIds: n.tags.filter((t) => t.id !== tagId).map((t) => t.id) });
+  delete node.dataset.busy;
+  if (r.status !== 200) return alert('没去掉，再试一次');
+  const updated = r.body.note;
+  if (state.view === 'library' && state.tagId === tagId) { removeEntryAnimated(node); refreshCounts(); }
+  else { node.replaceWith(entry(updated)); refreshCounts(); }
+  refreshTags();
 }
 
 /* ---------------- 打标签（= 发布决策） ---------------- */
@@ -255,7 +413,7 @@ async function openTagEditor(node, n) {
       const name = prompt('新标签名');
       if (!name || !name.trim()) return;
       const r = await post('/api/tags', { name: name.trim() });
-      if (r.status === 201) { state.tags.push(r.body.tag); chosen.add(r.body.tag.id); redraw(); drawTagFilter(); }
+      if (r.status === 201) { state.tags.push(r.body.tag); chosen.add(r.body.tag.id); redraw(); refreshTags(); }
       else alert(r.status === 409 ? '这个标签已经有了' : '建不了');
     };
     pk.appendChild(add);

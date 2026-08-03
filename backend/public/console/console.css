@@ -47,6 +47,30 @@ button { cursor: pointer; }
 .nav a.on { background: var(--raised); color: var(--ink); }
 .nav .count { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .side .who { margin-top: auto; font-size: 12.5px; color: var(--faint); line-height: 1.7; }
+
+/* ---------- 左栏标签列（flomo 式） ---------- */
+.tagbox { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.tagsearch { width: 100%; padding: 6px 9px; background: var(--raised); border: 1px solid var(--rule); border-radius: 8px; outline: none; font-size: 12.5px; }
+.tagsearch:focus { border-color: var(--clay); }
+.taglist { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 1px; margin: 0 -6px; padding: 0 4px; }
+.taggroup { font-size: 11px; color: var(--faint); letter-spacing: .08em; margin: 10px 8px 4px; }
+.taggroup:first-child { margin-top: 2px; }
+.tagrow { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 8px; color: var(--soft); font-size: 13.5px; cursor: grab; user-select: none; -webkit-user-select: none; }
+.tagrow:hover { background: var(--raised); color: var(--ink); }
+.tagrow.on { background: var(--raised); color: var(--clay); }
+.tagrow .thash { color: var(--faint); }
+.tagrow.on .thash { color: var(--clay); opacity: .6; }
+.tagrow .tname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tagrow .tcount { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tagrow .pin { display: none; background: none; border: none; color: var(--faint); font-size: 11px; padding: 0 2px; }
+.tagrow:hover .pin { display: inline; }
+.tagrow:hover .tcount { display: none; }
+.tagrow .pin:hover { color: var(--clay); }
+.tagrow.dragging { opacity: .35; }
+.tagrow.new { color: var(--faint); font-style: normal; }
+.drag-ghost { position: fixed; top: -200px; left: -200px; pointer-events: none; z-index: 99;
+  font-size: 12.5px; color: var(--clay); background: var(--raised); border: 1px solid var(--clay);
+  border-radius: 7px; padding: 3px 10px; box-shadow: 0 3px 10px rgba(0,0,0,.12); }
 .side .who button { background: none; border: none; padding: 0; color: var(--clay); font-size: 12.5px; }
 .main { padding: 24px 28px 80px; max-width: 760px; }
 .head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
@@ -59,7 +83,14 @@ button { cursor: pointer; }
 /* ---------- 笔记流 ---------- */
 .daygroup { margin-top: 26px; }
 .daygroup > .day { font-size: 12px; color: var(--faint); letter-spacing: .06em; padding-bottom: 7px; border-bottom: 1px solid var(--rule); }
-.entry { padding: 17px 0; border-bottom: 1px solid var(--rule); }
+.entry { padding: 17px 12px; margin: 0 -12px; border-bottom: 1px solid var(--rule); border-radius: 10px; }
+/* 拖着标签经过时，整条笔记亮起来表示「松手就贴在这」 */
+.entry.droptarget { background: var(--raised); box-shadow: inset 0 0 0 1.5px var(--clay); border-bottom-color: transparent; }
+.entry.droptarget * { pointer-events: none; } /* 防子元素抢 dragleave 造成闪烁 */
+.entry.leaving { opacity: 0; transform: translateX(10px); transition: opacity .18s, transform .18s; }
+@keyframes entryshake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.entry.shake { animation: entryshake .25s; }
+.head .hh { color: var(--faint); }
 .entry .body { font-family: var(--serif); font-size: 15.5px; line-height: 1.85; }
 .body > :first-child { margin-top: 0; }
 .body > :last-child { margin-bottom: 0; }
@@ -73,8 +104,14 @@ button { cursor: pointer; }
 .body a { color: var(--clay); }
 .entry .foot { display: flex; align-items: center; gap: 9px; margin-top: 11px; flex-wrap: wrap; }
 .entry .time { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
-.tag { font-size: 12px; color: var(--clay); }
+.tag { font-size: 12px; color: var(--clay); position: relative; }
 .tag::before { content: "#"; opacity: .55; }
+/* 悬停出小叉：右上角，点掉即摘标签 */
+.tag .x { display: none; position: absolute; top: -7px; right: -9px; background: var(--raised);
+  border: 1px solid var(--rule); border-radius: 999px; color: var(--brick); font-size: 10px;
+  line-height: 1; width: 13px; height: 13px; padding: 0; }
+.tag:hover .x { display: inline-flex; align-items: center; justify-content: center; }
+.entry .tags .tag { margin-right: 7px; }
 .entry .acts { margin-left: auto; display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
 .entry:hover .acts, .entry:focus-within .acts { opacity: 1; }
 .entry .acts button { background: none; border: none; color: var(--faint); font-size: 12.5px; padding: 2px 5px; border-radius: 6px; }
@@ -145,4 +182,7 @@ button { cursor: pointer; }
   .side .who { margin-top: 0; margin-left: auto; white-space: nowrap; }
   .main { padding: 18px 16px 70px; }
   .entry .acts { opacity: 1; }
+  /* 触屏没有拖拽：标签列收起，打标签走每条笔记上的「标签」按钮 */
+  .tagbox { display: none; }
+  .entry .tags .tag .x { display: inline-flex; }
 }
