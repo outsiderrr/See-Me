@@ -16,7 +16,7 @@ PHONE=${1:?用法: server-ingest.sh <+86手机号> <库文件> [state文件]}
 FILE=${2:?用法: server-ingest.sh <+86手机号> <库文件> [state文件]}
 STATE=${3:-$(dirname "$FILE")/.import-state.json}
 DIR=$(cd "$(dirname "$FILE")" && pwd)
-BASE_HOST=http://localhost   # 宿主视角的 app（80 → 容器 3000）
+BASE_HOST=http://localhost:3000   # 宿主视角的 app（上 Caddy 后 app 只绑 127.0.0.1:3000）
 
 [ -f docker-compose.yml ] || { echo "请在 /opt/see-me 下运行（要用 docker compose）"; exit 1; }
 

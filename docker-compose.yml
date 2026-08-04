@@ -37,8 +37,26 @@ services:
       SMS_DRIVER: ${SMS_DRIVER:-dev}
       SESSION_TTL_DAYS: "60"
       PORT: "3000"
+      NODE_ENV: production # cookie 的 secure 标记靠它；上 HTTPS 前一直没设
     ports:
-      - "80:3000"
+      # 只绑本机：运维脚本（server-ingest.sh 等）直连用。公网唯一入口是 caddy。
+      - "127.0.0.1:3000:3000"
+
+  # HTTPS 前门（P1）：80/443 全在这，证书自动签发续期，配置见 ./Caddyfile
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # 证书住这——删卷 = 重新签发，会撞 Let's Encrypt 限额
+      - caddy-config:/config
 
 volumes:
   db-data:
+  caddy-data:
+  caddy-config:

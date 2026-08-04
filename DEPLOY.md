@@ -48,7 +48,19 @@ docker compose exec db pg_dump -U seeme see_me > backup.sql   # 备份
 
 ## 防火墙（轻量服务器控制台）
 
-放行 TCP 80（HTTP）。将来上域名 + HTTPS 再放行 443。
+放行 TCP 80（HTTP）和 TCP 443（HTTPS）。80 不能关：Let's Encrypt 验证和
+HTTP→HTTPS 跳转都要它。
+
+## 域名 + HTTPS（P1，2026-08 上线）
+
+1. 阿里云 DNS：`fathomlog.com` 加 A 记录 `@ → 服务器IP`，再加 `www → 服务器IP`
+   （Caddyfile 里 www 跳转到裸域）。
+2. 防火墙放行 443（见上节）。
+3. 服务器上 `git pull && docker compose up -d --build`——caddy 服务起来后自动
+   签证书（要等 DNS 解析生效；签失败它会自己重试）。
+4. 验证：`https://fathomlog.com/health` 通、浏览器开 `/console` 有挂锁。
+5. 从此 app 只绑 `127.0.0.1:3000`（运维脚本用），公网只有 Caddy 的 80/443；
+   裸 IP 的 HTTP 访问无人应答，控制台一律走 `https://fathomlog.com/console`。
 
 ## iOS 指向服务器
 
