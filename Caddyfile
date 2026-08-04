@@ -1,0 +1,17 @@
+# Fathom 的 HTTPS 前门（P1）。证书全自动（Let's Encrypt），app 不再直接暴露公网。
+# HTTP→HTTPS 跳转是 Caddy 默认行为；裸 IP 访问从此无人应答（本来也不该再用它）。
+
+fathomlog.com {
+	encode gzip
+	# 整体替换 X-Forwarded-For：后端拿到的第一个值就是真实客户端地址，
+	# 伪造头到不了这里——app 端口只绑 127.0.0.1，公网唯一入口是本文件。
+	# （lib/clientIp.ts 的信任前提就建立在这一行上，改动前想清楚。）
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-For {client_ip}
+	}
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+www.fathomlog.com {
+	redir https://fathomlog.com{uri} permanent
+}
