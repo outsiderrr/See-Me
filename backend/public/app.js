@@ -68,15 +68,15 @@ window.addEventListener('hashchange', route);
 
 function renderLogin() {
   app().innerHTML = '';
-  let phase = 'phone';
-  let phone = '';
+  let phase = 'email';
+  let email = '';
   const view = el(`
     <div class="screen center">
       <div class="brand">Fathom</div>
       <p class="hint">别人想了解你时，来这里看。</p>
       <div class="form">
-        <input id="phone" class="input" placeholder="手机号" inputmode="tel" autocomplete="tel" />
-        <div id="codeRow" style="display:none"><input id="code" class="input" placeholder="6 位验证码" inputmode="numeric" /></div>
+        <input id="email" class="input" type="email" placeholder="邮箱" inputmode="email" autocomplete="email" />
+        <div id="codeRow" style="display:none"><input id="code" class="input" placeholder="6 位验证码" inputmode="numeric" autocomplete="one-time-code" /></div>
         <button id="go" class="btn">发送验证码</button>
         <p id="msg" class="msg"></p>
       </div>
@@ -85,19 +85,21 @@ function renderLogin() {
   const q = (id) => view.querySelector('#' + id);
   q('go').onclick = async () => {
     const msg = q('msg');
-    if (phase === 'phone') {
-      phone = q('phone').value.trim();
-      if (!/^\+?\d{8,15}$/.test(phone)) { msg.textContent = '手机号格式不对'; return; }
-      const r = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ phone }) });
+    if (phase === 'email') {
+      email = q('email').value.trim().toLowerCase(); // 与后端同款归一化
+      if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email)) { msg.textContent = '邮箱格式不对'; return; }
+      const r = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email }) });
       if (r.status === 200) {
         phase = 'code'; q('codeRow').style.display = 'block'; q('go').textContent = '登录';
         msg.textContent = '验证码已发送'; q('code').focus();
-      } else msg.textContent = r.status === 429 ? '太频繁了，稍后再试' : '发送失败';
+      } else if (r.status === 429) msg.textContent = '太频繁了，稍后再试';
+      else if (r.status === 502) msg.textContent = '邮件没发出去，联系作者';
+      else msg.textContent = '发送失败';
     } else {
       const code = q('code').value.trim();
-      const r = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ phone, code }) });
+      const r = await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
       if (r.status === 200 && r.body && r.body.token) { setToken(r.body.token); location.hash = ''; route(); }
-      else msg.textContent = '验证码不对';
+      else msg.textContent = (r.body && r.body.error) === 'locked' ? '试错太多次了，重新发一个码' : '验证码不对';
     }
   };
 }

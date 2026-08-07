@@ -5,7 +5,7 @@
 #
 # 流程：本地 check（不过不上传）→ scp 到服务器 → ssh 跑 server-ingest.sh → state 拷回湖。
 # 服务器地址和手机号刻意不进公开仓库，放湖里：~/通用空间/潜心/.import-config.json
-#   {"server": "admin@<服务器IP>", "phone": "+86...", "tags": ["…suggest 词表…"]}
+#   {"server": "admin@<服务器IP>", "email": "你@邮箱", "tags": ["…suggest 词表…"]}
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -13,11 +13,12 @@ LAKE="${FATHOM_LAKE:-$HOME/通用空间/潜心}"
 CONF="$LAKE/.import-config.json"
 STATE="$LAKE/.import-state.json"
 
-[ -f "$CONF" ] || { echo "缺 $CONF（内容：{\"server\": \"user@ip\", \"phone\": \"+86...\"}）"; exit 1; }
+[ -f "$CONF" ] || { echo "缺 $CONF（内容：{\"server\": \"user@ip\", \"email\": \"你@邮箱\"}）"; exit 1; }
 SERVER=$(node -p "require('$CONF').server")
-PHONE=$(node -p "require('$CONF').phone")
-# server/phone 会内插进远端命令；含引号的一律拒绝（config 是自家文件，坏了就修它）
-case "$PHONE$SERVER" in *"'"*) echo "config 里的 server/phone 不能含单引号"; exit 1;; esac
+EMAIL=$(node -p "require('$CONF').email || ''")
+[ -n "$EMAIL" ] || { echo "$CONF 里缺 email 字段（登录已从手机号改为邮箱）"; exit 1; }
+# server/email 会内插进远端命令；含引号的一律拒绝（config 是自家文件，坏了就修它）
+case "$EMAIL$SERVER" in *"'"*) echo "config 里的 server/email 不能含单引号"; exit 1;; esac
 
 FILE=${1:-$(ls -t "$LAKE/库"/*.md 2>/dev/null | head -1)}
 [ -n "${FILE:-}" ] && [ -f "$FILE" ] || { echo "库/ 里没找到要导的文件"; exit 1; }
@@ -40,7 +41,8 @@ fi
 # --- 3) 服务器上入库（dev OTP 自动捞码，见 server-ingest.sh）。
 #         入库半途失败时 state 也可能已更新一部分，所以失败也要把 state 拷回来。 ---
 RC=0
-ssh "$SERVER" "cd /opt/see-me && sh ~/fathom-import/server-ingest.sh '$PHONE' \
+# -t 分配终端：真发信模式下 server-ingest.sh 要提示你手输邮箱里的验证码
+ssh -t "$SERVER" "cd /opt/see-me && sh ~/fathom-import/server-ingest.sh '$EMAIL' \
   ~/fathom-import/upload.md ~/fathom-import/.import-state.json" || RC=$?
 
 # --- 4) state 拷回湖（幂等的记忆在这份文件里，务必带回来），成功后清掉服务器副本

@@ -34,7 +34,12 @@ services:
     environment:
       DATABASE_URL: postgresql://seeme:${DB_PASSWORD}@db:5432/see_me
       OTP_SECRET: ${OTP_SECRET:?put OTP_SECRET in .env}
-      SMS_DRIVER: ${SMS_DRIVER:-dev}
+      # 验证码走邮件。dev = 只打进容器日志；resend = 真发信，要下面两项
+      MAIL_DRIVER: ${MAIL_DRIVER:-dev}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # 过渡期用 dev 驱动（码只进日志）必须显式开这个，防手滑静默降级
+      MAIL_DEV_IN_PROD: ${MAIL_DEV_IN_PROD:-}
       SESSION_TTL_DAYS: "60"
       PORT: "3000"
       NODE_ENV: production # cookie 的 secure 标记靠它；上 HTTPS 前一直没设

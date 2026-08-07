@@ -67,7 +67,7 @@ export function buildApp() {
       where: { id: userId },
       select: {
         id: true,
-        phone: true,
+        email: true,
         displayName: true,
         createdAt: true,
         _count: { select: { notes: true, tags: true } },
@@ -77,7 +77,7 @@ export function buildApp() {
     return c.json({
       user: {
         id: user.id,
-        phone: user.phone,
+        email: user.email,
         displayName: user.displayName,
         createdAt: user.createdAt,
         noteCount: user._count.notes,
@@ -87,8 +87,8 @@ export function buildApp() {
   });
 
   /** The one writable field on the profile: the name a reader sees above an open
-   *  card ("X 分享给你"). Nothing else about the account is editable, and the phone
-   *  number is never derived from — an open link is world-readable. */
+   *  card ("X 分享给你"). Nothing else about the account is editable, and the login
+   *  address is never derived from — an open link is world-readable. */
   app.patch('/api/me', requireAuth, async (c) => {
     const { displayName } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
     if (displayName !== null && typeof displayName !== 'string') return c.json({ error: 'bad_input' }, 400);

@@ -36,14 +36,15 @@ describe('open cards: no-login reading (v2 P2)', () => {
     expect(feed.notes.map((n: { body: string }) => n.body)).toEqual(['hello']);
   });
 
-  it('the header never derives anything from the author phone number', async () => {
+  it('the header never derives anything from the author login address', async () => {
     const a = await makeUser(); // no display name
     const t = await makeTag(a.id, 't');
     const card = await makeOpenCard(a.id, CUTOFF, [{ include: [t.id] }]);
     const raw = await (await get(`/public/${card.publicSlug}`)).text();
-    const phone = (await db.user.findUniqueOrThrow({ where: { id: a.id } })).phone;
+    const email = (await db.user.findUniqueOrThrow({ where: { id: a.id } })).email;
     expect(JSON.parse(raw).ownerName).toBeNull();
-    expect(raw).not.toContain(phone.slice(-4));
+    expect(raw).not.toContain(email);
+    expect(raw).not.toContain(email.split('@')[0]); // 光是本地部分也不许出现
   });
 
   it('a login card can never carry a public slug, and its ids are not public keys', async () => {

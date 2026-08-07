@@ -24,10 +24,10 @@
 ## 一次导入的完整流程
 
 ```bash
-# 0)（仅首次）把服务器地址、手机号、suggest 词表放湖里——刻意不进公开仓库
+# 0)（仅首次）把服务器地址、登录邮箱、suggest 词表放湖里——刻意不进公开仓库
 #    （词表 = 作者内部标签名，属红线信息）：
 #    ~/通用空间/潜心/.import-config.json
-#    {"server": "admin@<服务器IP>", "phone": "+86...", "tags": ["标签1", "标签2"]}
+#    {"server": "admin@<服务器IP>", "email": "你@邮箱（小写）", "tags": ["标签1", "标签2"]}
 
 # 1) 提炼：把 PROMPT.md 交给你的 AI，产出 库/2026-Wnn.md（AI 会自跑 check）
 
@@ -86,6 +86,7 @@ import.mjs 和 server-ingest.sh 两个脚本。
 
 ## 排错
 
-- OTP 限流：请求 5 次/10 分钟，稍等再跑
+- OTP 限流：同一邮箱 5 次/10 分钟（另有 IP 与全局桶），稍等再跑
+- 配了真发信后 `server-ingest.sh` 捞不到码，会提示你从邮箱里读出来手输
 - 切了 aliyun 短信驱动后 `server-ingest.sh` 捞不到码：把捞 CODE 那两行换成 `read` 手输
 - `upload.sh` 半途失败：state 已尽量拷回，修好直接重跑（幂等，不会重复入库）

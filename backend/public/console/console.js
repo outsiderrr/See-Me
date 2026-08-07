@@ -36,14 +36,14 @@ const state = { me: null, tags: [], view: 'library', tagId: null, q: '', tagQ: '
 
 function renderGate() {
   app().innerHTML = '';
-  let phase = 'phone';
-  let phone = '';
+  let phase = 'email';
+  let email = '';
   const v = el(`
     <div class="gate">
       <div class="mark">Fathom</div>
       <div class="sub">控制台 —— 写、审、决定谁能看见。</div>
-      <input id="phone" class="field" placeholder="手机号" inputmode="tel" autocomplete="tel" />
-      <div id="codeRow" style="display:none"><input id="code" class="field" placeholder="6 位验证码" inputmode="numeric" /></div>
+      <input id="email" class="field" type="email" placeholder="邮箱" inputmode="email" autocomplete="email" />
+      <div id="codeRow" style="display:none"><input id="code" class="field" placeholder="6 位验证码" inputmode="numeric" autocomplete="one-time-code" /></div>
       <button id="go" class="btn">发送验证码</button>
       <div id="msg" class="note-msg"></div>
     </div>`);
@@ -52,23 +52,25 @@ function renderGate() {
   const submit = async () => {
     const msg = q('msg');
     msg.textContent = '';
-    if (phase === 'phone') {
-      phone = q('phone').value.trim();
-      if (!/^\+?\d{8,15}$/.test(phone)) { msg.textContent = '手机号格式不对'; return; }
-      const r = await post('/api/auth/request-code', { phone });
+    if (phase === 'email') {
+      email = q('email').value.trim().toLowerCase(); // 与后端同款归一化
+      if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email)) { msg.textContent = '邮箱格式不对'; return; }
+      const r = await post('/api/auth/request-code', { email });
       if (r.status === 200) {
         phase = 'code'; q('codeRow').style.display = 'block'; q('go').textContent = '进入';
         q('code').focus();
-      } else msg.textContent = r.status === 429 ? '太频繁了，稍后再试' : '发送失败';
+      } else if (r.status === 429) msg.textContent = '太频繁了，稍后再试';
+      else if (r.status === 502) msg.textContent = '邮件没发出去，检查发信配置';
+      else msg.textContent = '发送失败';
     } else {
-      const r = await post('/api/auth/verify', { phone, code: q('code').value.trim() });
+      const r = await post('/api/auth/verify', { email, code: q('code').value.trim() });
       if (r.status === 200 && r.body?.token) { setToken(r.body.token); boot(); }
-      else msg.textContent = '验证码不对';
+      else msg.textContent = r.body?.error === 'locked' ? '试错太多次了，重新发一个码' : '验证码不对';
     }
   };
   q('go').onclick = submit;
   v.querySelectorAll('.field').forEach((f) => (f.onkeydown = (e) => { if (e.key === 'Enter') submit(); }));
-  q('phone').focus();
+  q('email').focus();
 }
 
 /* ---------------- 骨架 ---------------- */
@@ -737,7 +739,7 @@ function mountCardCreator(host) {
   const chosen = new Set();
 
   const KIND_HINT = {
-    private: '需登录：读者用手机号登录后输入 8 位邀请码。会留下持卡记录（你看不到，数据层保留）。',
+    private: '需登录：读者用邮箱登录后输入 8 位邀请码。会留下持卡记录（你看不到，数据层保留）。',
     open: '免登录：有链接就能看，不需要账号。数据层不留任何读者记录——这也意味着无法逐个撤回，只能轮换链接或删卡。',
   };
   const drawKind = () => {
