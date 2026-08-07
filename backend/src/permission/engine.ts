@@ -4,6 +4,7 @@ import { db } from '../db';
 export type ReaderNote = {
   id: string;
   body: string;
+  topic: string | null;
   createdAt: Date;
   shares: { id: string; name: string }[];
   images: { id: string }[];
@@ -124,6 +125,7 @@ export async function readerFeed(p: FeedParams): Promise<{ notes: ReaderNote[]; 
     select: {
       id: true,
       body: true,
+      topic: true,
       createdAt: true,
       images: { orderBy: { sortOrder: 'asc' }, select: { id: true } },
     },
@@ -133,7 +135,7 @@ export async function readerFeed(p: FeedParams): Promise<{ notes: ReaderNote[]; 
   const notes: ReaderNote[] = page.map((c) => {
     const b = bodyMap.get(c.id)!;
     const shareList = [...c.shareIds].map((sid) => ({ id: sid, name: shareName.get(sid) ?? '' })).filter((s) => s.name);
-    return { id: b.id, body: b.body, createdAt: b.createdAt, shares: shareList, images: b.images };
+    return { id: b.id, body: b.body, topic: b.topic, createdAt: b.createdAt, shares: shareList, images: b.images };
   });
   return { notes, nextCursor };
 }

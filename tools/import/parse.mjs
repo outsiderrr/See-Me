@@ -94,12 +94,39 @@ export function parseChat(text, filePath, fallbackDate) {
   };
 
   const turns = [];
-  for (const section of sections) {
-    if (!section.title || !/第\s*\d+\s*(条|轮)/.test(section.title)) continue;
-    for (const part of splitSections(section.body, 3)) {
-      if (!part.title || !part.body.trim()) continue;
-      const role = part.title.includes('用户') ? 'user' : part.title.includes('AI') ? 'ai' : 'other';
-      turns.push({ role, section: section.title, text: part.body.trim() });
+  if (/^###\s+消息\s*\d+｜/m.test(text)) {
+    // Codex 消息正文本身可以包含任意 ## / ### 标题，不能用普通
+    // Markdown 层级切分。只有「任务轮次」和「消息 N｜角色」是记录边界。
+    const boundary = /^(##\s+任务轮次\s*\d+|###\s+消息\s*\d+｜([^\n]+))\s*$/gm;
+    const matches = [...text.matchAll(boundary)];
+    let task = '';
+    for (let i = 0; i < matches.length; i++) {
+      const heading = matches[i][1];
+      if (heading.startsWith('## ')) { task = heading.replace(/^##\s+/, ''); continue; }
+      const roleLabel = matches[i][2] || '';
+      const start = matches[i].index + matches[i][0].length;
+      const end = matches[i + 1]?.index ?? text.length;
+      const body = text.slice(start, end).trim();
+      if (!body) continue;
+      const role = roleLabel.includes('用户') ? 'user' : /(AI|Codex|Assistant)/i.test(roleLabel) ? 'ai' : 'other';
+      turns.push({ role, section: task || heading, text: body });
+    }
+  } else {
+    for (const section of sections) {
+      if (!section.title || !/第\s*\d+\s*(条|轮)/.test(section.title)) continue;
+      for (const part of splitSections(section.body, 3)) {
+        if (!part.title || !part.body.trim()) continue;
+        const role = part.title.includes('用户') ? 'user' : /(AI|Codex|Assistant)/i.test(part.title) ? 'ai' : 'other';
+        turns.push({ role, section: section.title, text: part.body.trim() });
+      }
+    }
+  }
+  if (!turns.length) {
+    // W30 起的漂移：`### 第 N 轮｜用户`——角色并进三级标题，没有二级分节
+    for (const part of splitSections(text, 3)) {
+      if (!part.title || !/(第\s*\d+\s*(条|轮)|消息\s*\d+)/.test(part.title) || !part.body.trim()) continue;
+      const role = part.title.includes('用户') ? 'user' : /(AI|Codex|Assistant)/i.test(part.title) ? 'ai' : 'other';
+      turns.push({ role, section: part.title, text: part.body.trim() });
     }
   }
 
@@ -115,10 +142,29 @@ export function parseChat(text, filePath, fallbackDate) {
     link: pick('对话链接') || null,
     attachment: pick('附件') || null,
     note: pick('说明') || null,
-    occurredOn: isoDate(pick('网页显示时间', '显示日期')) || fallbackDate,
+    occurredOn: isoDate(pick('网页显示时间', '显示日期', '任务创建时间')) || fallbackDate,
     turns,
     userTurns: turns.filter((t) => t.role === 'user'),
     empty: turns.filter((t) => t.role === 'user').length === 0,
+  };
+}
+
+/** flomo 导出或人工保存的随记。导出形式可能漂移，因此只取明示日期，不根据文件修改时间猜测。 */
+export function parseMemo(text, filePath, fallbackDate) {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const meta = parseHeader(lines.slice(0, 40));
+  const pick = (...keys) => {
+    for (const k of keys) for (const [mk, mv] of meta) if (mk.includes(k)) return mv;
+    return null;
+  };
+  const explicit = pick('创建时间', '更新时间', '日期', '时间');
+  return {
+    kind: 'memo',
+    title: firstHeading(text) || basename(filePath, '.md'),
+    occurredOn: isoDate(explicit) || fallbackDate,
+    body: text.trim(),
+    uncertainSpans: [],
+    empty: text.trim().length === 0,
   };
 }
 

@@ -177,32 +177,72 @@ async function renderCard(base, { open = false } = {}) {
     feed.innerHTML = '<div class="loading">…</div>';
     const q = active === 'recent' ? '' : '?tab=' + encodeURIComponent(active);
     const r = await api(base + '/notes' + q);
-    feed.innerHTML = '';
-    const notes = (r.body && r.body.notes) || [];
+    const notes = [...((r.body && r.body.notes) || [])];
     if (notes.length === 0) { feed.innerHTML = '<div class="empty">这里还没有内容。</div>'; return; }
-    notes.forEach((n) => feed.appendChild(noteCard(n, base)));
     let cursor = r.body.nextCursor;
-    if (cursor) {
+
+    function drawFeed() {
+      feed.innerHTML = '';
+      feed.appendChild(topicFeed(notes, base));
+      if (!cursor) return;
       const more = el('<button class="btn ghost more">加载更多</button>');
       more.onclick = async () => {
         const rr = await api(base + '/notes' + (q ? q + '&' : '?') + 'cursor=' + encodeURIComponent(cursor));
-        more.remove();
-        ((rr.body && rr.body.notes) || []).forEach((n) => feed.appendChild(noteCard(n, base)));
+        notes.push(...((rr.body && rr.body.notes) || []));
         cursor = rr.body && rr.body.nextCursor;
-        if (cursor) feed.appendChild(more);
+        drawFeed();
       };
       feed.appendChild(more);
     }
+    drawFeed();
   }
   drawTabs();
   loadFeed();
+}
+
+function topicName(n) {
+  if (typeof n.topic === 'string' && n.topic.trim()) return n.topic.trim();
+
+  // Old imported notes did not have a topic column. Their first blockquote keeps
+  // the raw source path, so all notes distilled from the same conversation can
+  // still be reunited without rewriting history.
+  const source = String(n.body || '').match(/^>\s*(?:录音|对话|随记)\s+\d{4}-\d{2}-\d{2}\s+·\s+(.+)$/m)?.[1]?.trim();
+  if (source) {
+    const file = source.split('/').pop().replace(/\.md$/i, '').replace(/^\d+[-_.、\s]*/, '');
+    if (file) return file;
+  }
+  return '未归入主题';
+}
+
+function topicFeed(notes, base) {
+  const root = document.createDocumentFragment();
+  const groups = new Map();
+  notes.forEach((note) => {
+    const topic = topicName(note);
+    if (!groups.has(topic)) groups.set(topic, []);
+    groups.get(topic).push(note);
+  });
+
+  for (const [topic, items] of groups) {
+    const section = el(`<section class="topic-group">
+      <header class="topic-head">
+        <div><div class="topic-kicker">主题</div><h2 class="topic-title">${esc(topic)}</h2></div>
+        <div class="topic-count">${items.length} 条</div>
+      </header>
+      <div class="topic-notes"></div>
+    </section>`);
+    const list = section.querySelector('.topic-notes');
+    items.forEach((note) => list.appendChild(noteCard(note, base)));
+    root.appendChild(section);
+  }
+  return root;
 }
 
 function noteCard(n, base) {
   const d = new Date(n.createdAt);
   const ds = `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
   const chips = (n.shares || []).map((s) => `<span class="chip">${esc(s.name)}</span>`).join('');
-  const node = el(`<article class="note"><div class="note-body">${md.render(n.body || '')}</div><div class="note-images"></div><div class="note-meta"><span class="date">${ds}</span>${chips}</div></article>`);
+  const node = el(`<article class="note topic-note"><div class="note-body">${md.render(n.body || '')}</div><div class="note-images"></div><div class="note-meta"><span class="date">${ds}</span>${chips}</div></article>`);
   const grid = node.querySelector('.note-images');
   (n.images || []).forEach(async (image) => {
     const blob = await apiBlob(`${base}/images/${encodeURIComponent(image.id)}`);

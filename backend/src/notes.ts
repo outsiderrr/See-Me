@@ -8,12 +8,19 @@ const withTags = {
 
 export type NewNoteImage = { mimeType: string; data: Uint8Array<ArrayBuffer> };
 
-export async function createNote(userId: string, body: string, tagIds: string[] = [], images: NewNoteImage[] = []) {
+export async function createNote(
+  userId: string,
+  body: string,
+  topic: string | null = null,
+  tagIds: string[] = [],
+  images: NewNoteImage[] = [],
+) {
   await assertTagsOwned(userId, tagIds);
   return db.note.create({
     data: {
       userId,
       body,
+      topic,
       noteTags: { create: [...new Set(tagIds)].map((tagId) => ({ tagId })) },
       images: { create: images.map((image, sortOrder) => ({ ...image, sortOrder })) },
     },
@@ -21,8 +28,11 @@ export async function createNote(userId: string, body: string, tagIds: string[] 
   });
 }
 
-export async function updateNote(userId: string, id: string, body: string) {
-  const r = await db.note.updateMany({ where: { id, userId }, data: { body } });
+export async function updateNote(userId: string, id: string, body: string, topic?: string | null) {
+  const r = await db.note.updateMany({
+    where: { id, userId },
+    data: { body, ...(topic !== undefined ? { topic } : {}) },
+  });
   if (r.count === 0) return null;
   return db.note.findUnique({ where: { id }, include: withTags });
 }

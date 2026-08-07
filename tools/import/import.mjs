@@ -24,8 +24,8 @@ import { resolve, dirname, join, basename } from 'node:path';
 
 // ---------- 契约常量 ----------
 
-const KINDS = new Set(['voice', 'chat']);
-const KIND_LABEL = { voice: '录音', chat: '对话' };
+const KINDS = new Set(['voice', 'chat', 'memo']);
+const KIND_LABEL = { voice: '录音', chat: '对话', memo: '随记' };
 // suggest 词表 = 用户已有标签。刻意**不写死在这里**：仓库公开，作者内部标签名
 // 属红线信息（v1 spec §4），词表放湖里 .import-config.json 的 tags 字段，
 // check 运行时读；读不到就跳过词表校验（suggest 本轮反正不上传）。
@@ -105,6 +105,7 @@ export function parseLibraryFile(text) {
       source: meta.source ?? '',
       kind: meta.kind ?? '',
       dated: meta.dated ?? '',
+      topic: meta.topic ?? '',
       suggest,
       title,
       body: bodyLines.join('\n').trim(),
@@ -126,12 +127,16 @@ export function validateStructural(r, vocab = null) {
   const errs = [];
   const warns = [];
   if (!r.source) errs.push('缺 source');
-  if (!KINDS.has(r.kind)) errs.push(`kind 应为 voice|chat，实为「${r.kind}」`);
+  if (!KINDS.has(r.kind)) errs.push(`kind 应为 voice|chat|memo，实为「${r.kind}」`);
   if (!isIsoDate(r.dated)) errs.push(`dated 应为 YYYY-MM-DD，实为「${r.dated}」`);
   if (!r.title) errs.push('缺 ## 一句话标题');
   if (!r.body) errs.push('缺正文');
+  if (!r.topic) warns.push('缺 topic：可以入库，但会在阅读端暂归为原始素材名');
+  if (r.topic.length > 80) errs.push(`topic 超过 80 个字符（${r.topic.length}）`);
   if (r.source.startsWith('语音备忘录/') && r.kind !== 'voice') errs.push('source 是语音备忘录但 kind 不是 voice');
   if (r.source.startsWith('chatgpt/') && r.kind !== 'chat') errs.push('source 是 chatgpt 但 kind 不是 chat');
+  if (r.source.startsWith('codex/') && r.kind !== 'chat') errs.push('source 是 codex 但 kind 不是 chat');
+  if (r.source.startsWith('flomo/') && r.kind !== 'memo') errs.push('source 是 flomo 但 kind 不是 memo');
 
   const text = `${r.title}\n${r.body}`;
   if (/[\[\]【】]/.test(text)) errs.push('标题/正文有方括号残留（不确定段不得进入产物）');
@@ -192,12 +197,12 @@ async function loadRawText(lake, source, cache) {
   let entry;
   try {
     const text = await readFile(path, 'utf8');
-    const { parseVoice, parseChat } = await import('./parse.mjs');
+    const { parseVoice, parseChat, parseMemo } = await import('./parse.mjs');
     const parsed = source.startsWith('语音备忘录/')
       ? parseVoice(text, path, null)
-      : parseChat(text, path, null);
+      : source.startsWith('flomo/') ? parseMemo(text, path, null) : parseChat(text, path, null);
     const overlapBase =
-      parsed.kind === 'voice' ? parsed.body : parsed.turns.map((t) => t.text).join('\n');
+      parsed.kind === 'chat' ? parsed.turns.map((t) => t.text).join('\n') : parsed.body;
     entry = {
       exists: true,
       overlap: contentChars(overlapBase),
@@ -205,7 +210,9 @@ async function loadRawText(lake, source, cache) {
       // 它的地方就是这里——不能只信提示词的自觉（PROMPT 红线 6：取不到别猜）。
       rawDate: parsed.kind === 'voice'
         ? parsed.recordedOn
-        : parsed.occurredOn ?? chatDateFromShown(parsed.shownTime, source),
+        : parsed.kind === 'chat'
+          ? parsed.occurredOn ?? chatDateFromShown(parsed.shownTime, source)
+          : parsed.occurredOn,
       // 方括号段的内容一个字都不许进产物；两个字符以下的段（如单字语气词）
       // 撞车概率太高，只比对长度 >= 3 的。
       uncertainSpans: (parsed.uncertainSpans ?? []).filter((s) => contentChars(s).length >= 3),
@@ -447,7 +454,7 @@ async function cmdIngest(file, opts) {
       imported++;
       continue;
     }
-    const res = await api(base, '/api/notes', { token, method: 'POST', body: { body } });
+    const res = await api(base, '/api/notes', { token, method: 'POST', body: { body, topic: r.topic || null } });
     if (res.status === 401) {
       console.error('token 中途失效，中止。已导入的都记在 state 里，重跑会接着来。');
       process.exit(1);

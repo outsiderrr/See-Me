@@ -14,7 +14,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-#app { max-width: 480px; margin: 0 auto; min-height: 100vh; }
+#app { max-width: 760px; margin: 0 auto; min-height: 100vh; }
 .screen { padding: 0 18px 48px; min-height: 100vh; }
 .center { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; text-align: center; }
 
@@ -63,8 +63,23 @@ body {
 }
 .tab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 
-.feed { display: flex; flex-direction: column; gap: 14px; }
+.feed { display: flex; flex-direction: column; gap: 22px; }
+.topic-group {
+  overflow: hidden; background: var(--card); border: 1px solid var(--line);
+  border-radius: 20px;
+}
+.topic-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+  padding: 20px 22px 17px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(156, 122, 84, .09), rgba(255, 253, 248, 0));
+}
+.topic-kicker { color: var(--accent); font-size: 11px; letter-spacing: .16em; margin-bottom: 5px; }
+.topic-title { margin: 0; font: 600 21px/1.4 Georgia, "Songti SC", serif; }
+.topic-count { flex: 0 0 auto; color: var(--soft); font-size: 12px; padding-top: 5px; }
+.topic-notes { padding: 0 22px; }
 .note { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 18px 16px; }
+.note.topic-note { border: 0; border-radius: 0; padding: 22px 0 20px; }
+.note.topic-note + .note.topic-note { border-top: 1px solid var(--line); }
 .note-body { font-size: 16px; line-height: 1.85; font-family: Georgia, "Songti SC", serif; }
 .note-body:empty { display: none; }
 /* markdown blocks (light structure) */
@@ -97,3 +112,11 @@ body {
 .date { color: var(--soft); font-size: 12.5px; }
 .chip { font-size: 12px; color: var(--accent); background: rgba(156, 122, 84, .1); padding: 3px 9px; border-radius: 999px; }
 .loading { color: var(--soft); text-align: center; padding: 40px; }
+
+@media (max-width: 560px) {
+  #app { max-width: 100%; }
+  .screen { padding-left: 14px; padding-right: 14px; }
+  .topic-head { padding: 18px 17px 15px; }
+  .topic-title { font-size: 19px; }
+  .topic-notes { padding: 0 17px; }
+}

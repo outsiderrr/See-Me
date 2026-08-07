@@ -4,7 +4,7 @@
 `docs/superpowers/specs/2026-07-26-see-me-v2-web-pipeline.md` 与状态文档 §2）：
 
 ```
-原始/ ──[用户把 PROMPT.md 交给自己的 agentic AI]──▶ 库/*.md
+原始/ ──[用户把 PROMPT.md 交给自己的 agentic AI]──▶ 库/*.md（主题笔记）
       ──[import.mjs check（Mac，全量校验）]──▶
       ──[upload.sh：scp 上服务器 → server-ingest.sh 在服务器对 localhost 入库]──▶
       控制台收件箱（无标签笔记队列）等审校打标签
@@ -47,6 +47,9 @@ tools/import/upload.sh                # 默认取 库/ 里最新的 .md
 
 正文。
 ```
+
+`topic` 作为结构化字段单独入库，不重复塞进正文。阅读端按它聚合同一话题；
+历史笔记没有 `topic` 时，会从上面的溯源路径自动归到同一原始素材名下。
 
 - 首行 blockquote = 溯源（决策 8：原始日期进首行；§2.3 决议：溯源走首行**不打标签**，
   `#录音` 标签会让笔记永远进不了收件箱）

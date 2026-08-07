@@ -10,6 +10,7 @@ export function noteDto(n: NoteWithTags) {
   return {
     id: n.id,
     body: n.body,
+    topic: n.topic,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
     tags: n.noteTags.map((nt) => ({ id: nt.tag.id, name: nt.tag.name })),
