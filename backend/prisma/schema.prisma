@@ -9,7 +9,9 @@ datasource db {
 
 model User {
   id          String   @id @default(cuid())
-  phone       String   @unique
+  // 登录标识。存之前一律 trim + 转小写（routes/auth.ts）——2026-08-03 踩过标识符
+  // 写法不一致（带不带 +86）导致同一个人分裂成两个账号的事故，归一化是硬要求。
+  email       String   @unique
   displayName String?  @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -139,15 +141,15 @@ model CardHolder {
   @@map("card_holders")
 }
 
-model PhoneOtp {
-  phone     String   @id
+model EmailOtp {
+  email     String   @id
   codeHash  String   @map("code_hash")
   expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
   attempts  Int      @default(0)
   consumed  Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@map("phone_otps")
+  @@map("email_otps")
 }
 
 model Session {

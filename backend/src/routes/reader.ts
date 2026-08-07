@@ -50,7 +50,7 @@ readerRoutes.get('/my-cards', async (c) => {
         select: {
           id: true,
           title: true,
-          user: { select: { displayName: true, phone: true } },
+          user: { select: { displayName: true } },
         },
       },
     },
@@ -60,15 +60,13 @@ readerRoutes.get('/my-cards', async (c) => {
     cards: holdings.map((h) => ({
       id: h.card.id,
       title: h.card.title,
-      ownerName: h.card.user.displayName || maskPhone(h.card.user.phone),
+      // 只给作者自己设的显示名。原来这里在没有显示名时回落到打码手机号——
+      // 客户端根本没渲染它，等于白送读者一份作者标识。改邮箱登录时一并去掉，
+      // 与免登录卡的 public.ts 保持一致：读者标识永不从登录标识派生。
+      ownerName: h.card.user.displayName || null,
     })),
   });
 });
-
-function maskPhone(phone: string): string {
-  if (phone.length < 7) return phone;
-  return phone.slice(0, 3) + '••••' + phone.slice(-4);
-}
 
 /** Reader card header: title + tabs (share display names). Access-guarded. */
 readerRoutes.get('/read/:cardId', async (c) => {

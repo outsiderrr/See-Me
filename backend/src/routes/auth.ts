@@ -8,29 +8,44 @@ import type { AuthVars } from '../auth/middleware';
 
 export const authRoutes = new Hono<AuthVars>();
 
+/** 归一化 = 幂等的登录标识。trim + 小写，因为邮箱域名部分大小写不敏感，而这一列
+ *  是唯一键：`A@x.com` 和 `a@x.com` 不归一就是两个账号。2026-08-03 的手机号事故
+ *  （带不带 +86 写法不同 ⇒ 分裂出空账号、笔记全在另一个号下）就是这么来的。
+ *  本地部分严格来说大小写敏感，但现实中没有邮件服务商这么干，统一小写是安全的取舍。 */
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+const normalizeEmail = (raw: string) => raw.trim().toLowerCase();
+
 authRoutes.post('/request-code', async (c) => {
-  const { phone } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
-  if (typeof phone !== 'string' || !/^\+?\d{8,15}$/.test(phone)) {
-    return c.json({ error: 'bad_phone' }, 400);
-  }
-  const rl = await consume(`otp_send:${phone}`, 5, 10 * 60_000); // 5 / 10min
+  const { email: raw } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  if (typeof raw !== 'string') return c.json({ error: 'bad_email' }, 400);
+  const email = normalizeEmail(raw);
+  if (email.length > 254 || !EMAIL_RE.test(email)) return c.json({ error: 'bad_email' }, 400);
+
+  const rl = await consume(`otp_send:${email}`, 5, 10 * 60_000); // 5 / 10min
   if (!rl.allowed) return c.json({ error: 'rate_limited' }, 429);
-  await requestCode(phone);
+
+  try {
+    await requestCode(email);
+  } catch {
+    // 发信挂了要如实说，否则用户会对着一个永远不会到的验证码等下去
+    return c.json({ error: 'send_failed' }, 502);
+  }
   return c.json({ ok: true });
 });
 
 authRoutes.post('/verify', async (c) => {
-  const { phone, code } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
-  if (typeof phone !== 'string' || typeof code !== 'string') {
+  const { email: raw, code } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  if (typeof raw !== 'string' || typeof code !== 'string') {
     return c.json({ error: 'bad_input' }, 400);
   }
-  const rl = await consume(`otp_verify:${phone}`, 10, 10 * 60_000);
+  const email = normalizeEmail(raw);
+  const rl = await consume(`otp_verify:${email}`, 10, 10 * 60_000);
   if (!rl.allowed) return c.json({ error: 'rate_limited' }, 429);
 
-  const result = await verifyCode(phone, code);
+  const result = await verifyCode(email, code);
   if (!result.ok) return c.json({ error: result.reason }, 401);
 
-  const user = await db.user.upsert({ where: { phone }, create: { phone }, update: {} });
+  const user = await db.user.upsert({ where: { email }, create: { email }, update: {} });
   const s = await createSession(user.id);
 
   // Web client: httpOnly cookie. Native client: token in body (store in Keychain).
@@ -41,7 +56,7 @@ authRoutes.post('/verify', async (c) => {
     expires: s.expiresAt,
     path: '/',
   });
-  return c.json({ ok: true, token: s.id, user: { id: user.id, phone: user.phone } });
+  return c.json({ ok: true, token: s.id, user: { id: user.id, email: user.email } });
 });
 
 authRoutes.post('/logout', async (c) => {

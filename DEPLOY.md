@@ -25,9 +25,9 @@ nano .env   # 填 DB_PASSWORD 和 OTP_SECRET（各自一长串随机字符）
 docker compose up -d --build
 
 # 5) 验证
-curl -s http://localhost/api/auth/request-code -X POST \
-  -H 'content-type: application/json' -d '{"phone":"+8613500009001"}'
-docker compose logs app | tail -5   # 应看到 [sms:dev] 验证码
+curl -s http://localhost:3000/api/auth/request-code -X POST \
+  -H 'content-type: application/json' -d '{"email":"you@example.com"}'
+docker compose logs app | tail -5   # MAIL_DRIVER=dev 时能看到 [mail:dev] 验证码
 ```
 
 之后浏览器打开 `http://<服务器公网IP>/` 就是 B 端登录阅读页；免登录卡的链接是
@@ -41,7 +41,7 @@ docker compose logs app | tail -5   # 应看到 [sms:dev] 验证码
 
 ```bash
 cd /opt/see-me
-docker compose logs -f app          # 看日志（dev 短信驱动的验证码在这里）
+docker compose logs -f app          # 看日志（MAIL_DRIVER=dev 时验证码在这里）
 git pull && docker compose up -d --build   # 升级到最新代码
 docker compose exec db pg_dump -U seeme see_me > backup.sql   # 备份
 ```
@@ -62,6 +62,29 @@ HTTP→HTTPS 跳转都要它。
 5. 从此 app 只绑 `127.0.0.1:3000`（运维脚本用），公网只有 Caddy 的 80/443；
    裸 IP 的 HTTP 访问无人应答，控制台一律走 `https://fathomlog.com/console`。
 
+## 邮箱登录（2026-08-07 起；此前是手机验证码）
+
+**为什么换**：给中国大陆手机发短信要过阿里云签名审核，审核要备案/公众号/企业资质
+作佐证；备案又要求服务器在大陆，而本服务器在东京——那条路是死的。邮件没有这道关卡。
+
+**首次切换**（`20260807140000_email_login` 迁移会把 `users.phone` 原样改名为
+`users.email`，账号和笔记全部保留，但列里躺的还是旧手机号，**必须改成真邮箱才能登录**）：
+
+```bash
+cd /opt/see-me && git pull && docker compose up -d --build
+# 把你的账号改成真实邮箱（<旧手机号> 换成迁移前登录用的那个）
+docker compose exec db psql -U seeme -d see_me \
+  -c "UPDATE users SET email='你的邮箱' WHERE email='<旧手机号>';"
+```
+
+**配真发信**（在这之前 `MAIL_DRIVER=dev`，验证码只打进容器日志）：
+
+1. resend.com 注册，添加域名 `fathomlog.com`，按它给的 SPF/DKIM 记录去阿里云 DNS 添加；
+2. 建一个 API key；
+3. 服务器 `.env` 里填 `MAIL_DRIVER=resend`、`RESEND_API_KEY=re_...`、
+   `MAIL_FROM=Fathom <noreply@fathomlog.com>`；
+4. `docker compose up -d`，登录页发一次码验证。
+
 ## iOS 指向服务器
 
 `ios/SeeMe/APIClient.swift` 里把 `deviceHost` 改成服务器公网 IP（或将来
@@ -71,5 +94,5 @@ HTTP→HTTPS 跳转都要它。
 ## 待办（M5 收尾）
 
 - 域名解析到服务器 + Caddy/Nginx 做 HTTPS（免 ICP：服务器在东京）
-- 阿里云短信签名过审后接 `aliyun` 驱动（SMS_DRIVER=aliyun）
+- ~~阿里云短信签名~~ 已放弃：改成邮箱验证码（见「邮箱登录」节）
 - 定期 pg_dump 备份

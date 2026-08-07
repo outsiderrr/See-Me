@@ -4,13 +4,13 @@ import type { CardKind } from '../cards';
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
-    `TRUNCATE TABLE "card_holders","share_tags","shares","cards","note_images","note_tags","notes","tags","sessions","phone_otps","rate_limits","users" RESTART IDENTITY CASCADE;`,
+    `TRUNCATE TABLE "card_holders","share_tags","shares","cards","note_images","note_tags","notes","tags","sessions","email_otps","rate_limits","users" RESTART IDENTITY CASCADE;`,
   );
 }
 
 let seq = 0;
 export async function makeUser(displayName?: string) {
-  return db.user.create({ data: { phone: `+8613900${String(seq++).padStart(6, '0')}`, displayName } });
+  return db.user.create({ data: { email: `fathom-test-owner-${seq++}@test.local`, displayName } });
 }
 
 export async function makeTag(userId: string, name: string) {
