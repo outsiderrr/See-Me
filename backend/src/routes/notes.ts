@@ -9,6 +9,7 @@ noteRoutes.use('*', requireAuth);
 
 const MAX_IMAGES = 9;
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_TOPIC_LENGTH = 80;
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function decodeImages(input: unknown): Notes.NewNoteImage[] | null {
@@ -37,13 +38,19 @@ noteRoutes.get('/', async (c) => {
 
 noteRoutes.post('/', async (c) => {
   const userId = c.get('userId')!;
-  const { body, tagIds, images: rawImages } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  const { body, topic, tagIds, images: rawImages } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
   const images = decodeImages(rawImages);
-  if (typeof body !== 'string' || images === null || (!body.trim() && images.length === 0)) {
+  if (
+    typeof body !== 'string' ||
+    images === null ||
+    (!body.trim() && images.length === 0) ||
+    (topic !== undefined && topic !== null && (typeof topic !== 'string' || topic.trim().length > MAX_TOPIC_LENGTH))
+  ) {
     return c.json({ error: 'bad_note' }, 400);
   }
   try {
-    const note = await Notes.createNote(userId, body.trim(), Array.isArray(tagIds) ? tagIds : [], images);
+    const cleanTopic = typeof topic === 'string' && topic.trim() ? topic.trim() : null;
+    const note = await Notes.createNote(userId, body.trim(), cleanTopic, Array.isArray(tagIds) ? tagIds : [], images);
     return c.json({ note: noteDto(note) }, 201);
   } catch (e) {
     return c.json({ error: (e as Error).message === 'tag_not_owned' ? 'tag_not_owned' : 'error' }, 400);
@@ -61,9 +68,14 @@ noteRoutes.get('/images/:id', async (c) => {
 
 noteRoutes.patch('/:id', async (c) => {
   const userId = c.get('userId')!;
-  const { body } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
-  if (typeof body !== 'string' || !body.trim()) return c.json({ error: 'bad_body' }, 400);
-  const note = await Notes.updateNote(userId, c.req.param('id'), body);
+  const { body, topic } = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  if (
+    typeof body !== 'string' ||
+    !body.trim() ||
+    (topic !== undefined && topic !== null && (typeof topic !== 'string' || topic.trim().length > MAX_TOPIC_LENGTH))
+  ) return c.json({ error: 'bad_body' }, 400);
+  const cleanTopic = topic === undefined ? undefined : typeof topic === 'string' && topic.trim() ? topic.trim() : null;
+  const note = await Notes.updateNote(userId, c.req.param('id'), body.trim(), cleanTopic);
   return note ? c.json({ note: noteDto(note) }) : c.json({ error: 'not_found' }, 404);
 });
 

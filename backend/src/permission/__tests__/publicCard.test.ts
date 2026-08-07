@@ -91,7 +91,7 @@ describe('open cards: no-login reading (v2 P2)', () => {
     expect(raw).not.toContain('updatedAt');
     expect(raw).not.toContain('updated_at');
     const note = JSON.parse(raw).notes[0];
-    expect(Object.keys(note).sort()).toEqual(['body', 'createdAt', 'id', 'images', 'shares']);
+    expect(Object.keys(note).sort()).toEqual(['body', 'createdAt', 'id', 'images', 'shares', 'topic']);
     expect(note.shares.map((s: { name: string }) => s.name)).toEqual(['随想']);
   });
 

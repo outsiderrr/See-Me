@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readerFeed } from '../engine';
+import { db } from '../../db';
 import { resetDb, makeUser, makeTag, makeNote, makeCard } from '../../test/helpers';
 
 const T0 = new Date('2026-01-01T00:00:00.000Z');
@@ -100,5 +101,17 @@ describe('permission engine (share model)', () => {
 
     const empty = await makeCard(a.id, CUTOFF, []);
     expect(await feed(empty, a.id)).toEqual([]);
+  });
+
+  it('reader feed exposes the topic without exposing author-only fields', async () => {
+    const a = await makeUser();
+    const t = await makeTag(a.id, 't');
+    const card = await makeCard(a.id, CUTOFF, [{ include: [t.id] }]);
+    const note = await makeNote(a.id, 'connected thought', [t.id], T0);
+    await db.note.update({ where: { id: note.id }, data: { topic: '交易的机会成本' } });
+
+    const item = (await feed(card, a.id))[0];
+    expect(item.topic).toBe('交易的机会成本');
+    expect(Object.keys(item)).not.toContain('updatedAt');
   });
 });
