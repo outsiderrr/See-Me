@@ -112,15 +112,50 @@ docker compose exec db psql -U seeme -d see_me -c \
 **配真发信**（在这之前 `MAIL_DRIVER=dev` + `MAIL_DEV_IN_PROD=1`，验证码只打进容器日志——
 这个开关必须显式设，防的是把 `MAIL_DRIVER` 拼错时静默降级成「以为在发信、其实码全进日志」）：
 
+**先选驱动**：收件方是 **126/163/QQ 等国内邮箱 → 用 `aliyun`**（网易系对境外发信方
+过滤极严，Resend 很可能被拒收或进垃圾箱）；收件方是 Gmail 等海外邮箱 → `resend` 更省事。
+
+### A. 阿里云邮件推送（推荐给国内邮箱）
+
+1. 控制台开通「邮件推送」→ **发信域名**：添加 `fathomlog.com`，把它给的
+   SPF / DKIM / MX（所有权校验）记录加到同账号的云解析里，等验证通过；
+2. **发信地址**：新建一个，比如 `noreply@fathomlog.com`，类型选「触发邮件」；
+3. RAM 里建个用户拿 AccessKey，只授 `AliyunDirectMailFullAccess`（别用主账号密钥）；
+4. 服务器 `.env`：
+
+   ```
+   MAIL_DRIVER=aliyun
+   ALIYUN_ACCESS_KEY_ID=LTAI...
+   ALIYUN_ACCESS_KEY_SECRET=...
+   ALIYUN_DM_ACCOUNT=noreply@fathomlog.com
+   ALIYUN_DM_FROM_ALIAS=Fathom
+   ```
+
+   并**删掉 `MAIL_DEV_IN_PROD`**；
+5. `docker compose up -d`，登录页发一次码验证。
+
+> 默认打杭州地域（Version `2015-11-23`）。要换新加坡等地域，`ALIYUN_DM_ENDPOINT`
+> 和 `ALIYUN_DM_VERSION` 必须**一起**改（新加坡是 `https://dm.ap-southeast-1.aliyuncs.com/`
+> + `2017-06-22`），只改一个会一直签名失败。
+
+### B. Resend（海外邮箱够用）
+
 1. resend.com 注册，添加域名 `fathomlog.com`，按它给的 SPF/DKIM 记录去阿里云 DNS 添加；
 2. 建一个 API key；
 3. 服务器 `.env` 里填 `MAIL_DRIVER=resend`、`RESEND_API_KEY=re_...`、
    `MAIL_FROM=Fathom <noreply@fathomlog.com>`，并**删掉 `MAIL_DEV_IN_PROD`**；
 4. `docker compose up -d`，登录页发一次码验证。
 
-> 收件方是 126/163/QQ 等国内邮箱时注意：网易系对境外发信方过滤极严，Resend 很可能
-> 被拒收或进垃圾箱。收不到就改用国内发信服务（阿里云邮件推送），驱动是可插拔的，
-> 加一个 `lib/mailer/aliyunDriver.ts` 即可，不影响其它任何代码。
+### 发信没成功怎么查
+
+`/request-code` 返回 502 就是发信这一步失败了（不会假装成功）。看日志：
+
+```bash
+docker compose logs --tail=50 app | grep -iE 'aliyun_dm_failed|resend_failed|mail_not_configured'
+```
+
+`mail_not_configured` = 密钥/发信地址没配全；`aliyun_dm_failed_400_InvalidMailAddress`
+之类的尾巴是阿里云返回的错误码，按码查它的文档即可。
 
 ## iOS 指向服务器
 
