@@ -1,5 +1,6 @@
 import { devDriver } from './devDriver';
 import { resendDriver } from './resendDriver';
+import { aliyunDriver } from './aliyunDriver';
 
 export interface MailSender {
   send(email: string, code: string): Promise<void>;
@@ -14,6 +15,8 @@ export interface MailSender {
  *  实际每个登录码都躺在 docker logs 里等人捡。 */
 export function getMailSender(): MailSender {
   const name = (process.env.MAIL_DRIVER ?? 'dev').trim();
+  // aliyun：收件方是 126/163/QQ 时选它，境外发信方常被网易系拒收
+  if (name === 'aliyun') return aliyunDriver;
   if (name === 'resend') return resendDriver;
   if (name === 'dev') {
     // 生产上用 dev 驱动是**过渡期的合法选择**（真发信还没配好时，码从容器日志里读，
@@ -26,5 +29,5 @@ export function getMailSender(): MailSender {
     }
     return devDriver;
   }
-  throw new Error(`未知的 MAIL_DRIVER：${name}（可选 dev | resend）`);
+  throw new Error(`未知的 MAIL_DRIVER：${name}（可选 dev | resend | aliyun）`);
 }
