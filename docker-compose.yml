@@ -38,6 +38,8 @@ services:
       MAIL_DRIVER: ${MAIL_DRIVER:-dev}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      # 过渡期用 dev 驱动（码只进日志）必须显式开这个，防手滑静默降级
+      MAIL_DEV_IN_PROD: ${MAIL_DEV_IN_PROD:-}
       SESSION_TTL_DAYS: "60"
       PORT: "3000"
       NODE_ENV: production # cookie 的 secure 标记靠它；上 HTTPS 前一直没设

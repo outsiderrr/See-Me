@@ -68,22 +68,55 @@ HTTP→HTTPS 跳转都要它。
 作佐证；备案又要求服务器在大陆，而本服务器在东京——那条路是死的。邮件没有这道关卡。
 
 **首次切换**（`20260807140000_email_login` 迁移会把 `users.phone` 原样改名为
-`users.email`，账号和笔记全部保留，但列里躺的还是旧手机号，**必须改成真邮箱才能登录**）：
+`users.email`，账号和笔记全部保留，但列里躺的还是旧手机号，**必须改成真邮箱才能登录**）。
+
+⚠️ **顺序不能变：改邮箱必须发生在 app 起来之前。** 迁移完成到 UPDATE 之间，只要
+有人（包括你自己手快）打开登录页输一次邮箱，服务端就会用那个地址 upsert 出一个
+**新的空账号**占掉唯一键，随后的 UPDATE 撞键失败，76 条笔记留在旧行上——2026-08-03
+的「一人两账号」事故就是这么发生的。所以先只起数据库、迁完、改完，最后才放 app 出来：
 
 ```bash
-cd /opt/see-me && git pull && docker compose up -d --build
-# 把你的账号改成真实邮箱（<旧手机号> 换成迁移前登录用的那个）
-docker compose exec db psql -U seeme -d see_me \
-  -c "UPDATE users SET email='你的邮箱' WHERE email='<旧手机号>';"
+cd /opt/see-me && git pull
+
+# 1) 只起数据库
+docker compose up -d db
+
+# 2) 单独跑迁移（app 容器跑完即退，不监听端口）
+docker compose run --rm --entrypoint sh app -c 'npx prisma migrate deploy'
+
+# 3) 把账号改成真实邮箱。lower(trim()) 是硬要求：后端登录时会把输入归一化成小写，
+#    库里若存了大写，你永远登不进这一行。RETURNING 用来确认确实改到了 1 行。
+docker compose exec db psql -U seeme -d see_me -c \
+  "UPDATE users SET email=lower(trim('你的邮箱')) WHERE email='<旧手机号>' RETURNING id, email;"
+#    ↑ 返回 0 行 = WHERE 里的旧值不对。先查真实值再改，别去登录页试：
+#    docker compose exec db psql -U seeme -d see_me -c \
+#      "SELECT id, email, display_name, (SELECT count(*) FROM notes n WHERE n.user_id=u.id) notes FROM users u ORDER BY notes DESC;"
+
+# 4) 确认无误后再放 app 和 caddy 出来
+docker compose up -d --build
 ```
 
-**配真发信**（在这之前 `MAIL_DRIVER=dev`，验证码只打进容器日志）：
+**万一还是撞车了**（UPDATE 报 duplicate key）：先删掉那个误建的空账号再改，
+删之前务必确认它的 notes 数是 0：
+
+```bash
+docker compose exec db psql -U seeme -d see_me -c \
+  "DELETE FROM users WHERE email=lower(trim('你的邮箱'))
+     AND NOT EXISTS (SELECT 1 FROM notes WHERE user_id=users.id);"
+```
+
+**配真发信**（在这之前 `MAIL_DRIVER=dev` + `MAIL_DEV_IN_PROD=1`，验证码只打进容器日志——
+这个开关必须显式设，防的是把 `MAIL_DRIVER` 拼错时静默降级成「以为在发信、其实码全进日志」）：
 
 1. resend.com 注册，添加域名 `fathomlog.com`，按它给的 SPF/DKIM 记录去阿里云 DNS 添加；
 2. 建一个 API key；
 3. 服务器 `.env` 里填 `MAIL_DRIVER=resend`、`RESEND_API_KEY=re_...`、
-   `MAIL_FROM=Fathom <noreply@fathomlog.com>`；
+   `MAIL_FROM=Fathom <noreply@fathomlog.com>`，并**删掉 `MAIL_DEV_IN_PROD`**；
 4. `docker compose up -d`，登录页发一次码验证。
+
+> 收件方是 126/163/QQ 等国内邮箱时注意：网易系对境外发信方过滤极严，Resend 很可能
+> 被拒收或进垃圾箱。收不到就改用国内发信服务（阿里云邮件推送），驱动是可插拔的，
+> 加一个 `lib/mailer/aliyunDriver.ts` 即可，不影响其它任何代码。
 
 ## iOS 指向服务器
 

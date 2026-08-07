@@ -64,4 +64,33 @@ describe('email login identity', () => {
     expect((await locked.json()).error).toBe('locked');
     expect(await db.user.count()).toBe(0); // 猜码猜不出账号来
   });
+
+  // 锁定必须是**可恢复**的。旧实现里 attempts 只增不减，于是任何人只要知道你的邮箱，
+  // 1 次发码 + 5 次错码就能把账号永久锁死，只能改库救——而前端还在提示「重新发一个码」。
+  it('a fresh code clears the lockout (otherwise anyone could brick an account in six requests)', async () => {
+    await codeFor('victim@example.com');
+    for (let i = 0; i < 5; i++) await post('/api/auth/verify', { email: 'victim@example.com', code: '000000' });
+    expect((await (await post('/api/auth/verify', { email: 'victim@example.com', code: '000000' })).json()).error).toBe('locked');
+
+    const fresh = await codeFor('victim@example.com'); // 就是前端提示用户做的事
+    expect((await post('/api/auth/verify', { email: 'victim@example.com', code: fresh })).status).toBe(200);
+  });
+
+  it('rejects cross-site form posts (login CSRF would silently swap your account)', async () => {
+    // 跨站 <form> 发不出 application/json，只能是这几种
+    const formPost = await app.request('/api/auth/request-code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'email=attacker@example.com',
+    });
+    expect(formPost.status).toBe(415);
+
+    const crossSite = await app.request('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ email: 'attacker@example.com', code: '000000' }),
+    });
+    expect(crossSite.status).toBe(403);
+    expect(await db.emailOtp.count()).toBe(0);
+  });
 });
