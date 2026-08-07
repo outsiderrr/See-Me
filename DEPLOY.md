@@ -78,7 +78,11 @@ HTTP→HTTPS 跳转都要它。
 ```bash
 cd /opt/see-me && git pull
 
-# 1) 只起数据库
+# 1) 先构建新镜像，再起数据库。
+#    ⚠️ build 不能省：Dockerfile 是 `COPY . .`，迁移文件是**打进镜像**的，源码目录里
+#    有不等于容器里有。跳过它的话下一步会报「No pending migrations to apply」，
+#    然后 UPDATE 报 column "email" does not exist（2026-08-07 实际踩过）。
+docker compose build app
 docker compose up -d db
 
 # 2) 单独跑迁移（app 容器跑完即退，不监听端口）
