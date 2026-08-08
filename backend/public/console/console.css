@@ -37,6 +37,10 @@ button { cursor: pointer; }
 .btn.small { padding: 5px 11px; font-size: 13px; border-radius: 8px; }
 .btn:disabled { opacity: .45; cursor: default; }
 .note-msg { color: var(--brick); font-size: 13px; min-height: 18px; margin-top: 8px; }
+.sent { color: var(--soft); font-size: 13px; margin-top: 10px; line-height: 1.9; }
+.sent b { color: var(--ink); font-weight: 500; }
+.sent .linky { background: none; border: none; padding: 0; margin-left: 12px; color: var(--clay); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.sent .linky:disabled { opacity: .45; cursor: default; }
 
 /* ---------- 骨架 ---------- */
 .shell { display: grid; grid-template-columns: 208px minmax(0, 1fr); min-height: 100vh; }
