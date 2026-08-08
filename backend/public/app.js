@@ -88,10 +88,25 @@ function renderLogin() {
     if (phase === 'email') {
       email = q('email').value.trim().toLowerCase(); // 与后端同款归一化
       if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email)) { msg.textContent = '邮箱格式不对'; return; }
+      q('go').disabled = true;
       const r = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email }) });
+      q('go').disabled = false;
       if (r.status === 200) {
         phase = 'code'; q('codeRow').style.display = 'block'; q('go').textContent = '登录';
-        msg.textContent = '验证码已发送'; q('code').focus();
+        // 说清楚发到哪去了，并给一条重发的出路（原来只有一句「已发送」，没了下文）
+        msg.textContent = '验证码已发到 ' + email;
+        if (!q('again')) {
+          const again = el('<button id="again" class="link">重新发送</button>');
+          again.onclick = async () => {
+            again.disabled = true;
+            const rr = await api('/api/auth/request-code', { method: 'POST', body: JSON.stringify({ email }) });
+            again.disabled = false;
+            msg.textContent = rr.status === 200 ? '新的验证码已发到 ' + email
+              : rr.status === 429 ? '太频繁了，稍后再试' : '发送失败';
+          };
+          msg.parentNode.appendChild(again);
+        }
+        q('code').focus();
       } else if (r.status === 429) msg.textContent = '太频繁了，稍后再试';
       else if (r.status === 502) msg.textContent = '邮件没发出去，联系作者';
       else msg.textContent = '发送失败';

@@ -45,6 +45,7 @@ function renderGate() {
       <input id="email" class="field" type="email" placeholder="邮箱" inputmode="email" autocomplete="email" />
       <div id="codeRow" style="display:none"><input id="code" class="field" placeholder="6 位验证码" inputmode="numeric" autocomplete="one-time-code" /></div>
       <button id="go" class="btn">发送验证码</button>
+      <div id="sent" class="sent" style="display:none"></div>
       <div id="msg" class="note-msg"></div>
     </div>`);
   app().appendChild(v);
@@ -55,9 +56,14 @@ function renderGate() {
     if (phase === 'email') {
       email = q('email').value.trim().toLowerCase(); // 与后端同款归一化
       if (!/^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email)) { msg.textContent = '邮箱格式不对'; return; }
+      q('go').disabled = true;
       const r = await post('/api/auth/request-code', { email });
+      q('go').disabled = false;
       if (r.status === 200) {
+        // 发出去了要说一声。之前只是把按钮文案换成「进入」，太隐晦——
+        // 用户会盯着界面找「发送」按钮，不知道码已经在路上了。
         phase = 'code'; q('codeRow').style.display = 'block'; q('go').textContent = '进入';
+        showSent();
         q('code').focus();
       } else if (r.status === 429) msg.textContent = '太频繁了，稍后再试';
       else if (r.status === 502) msg.textContent = '邮件没发出去，检查发信配置';
@@ -65,9 +71,29 @@ function renderGate() {
     } else {
       const r = await post('/api/auth/verify', { email, code: q('code').value.trim() });
       if (r.status === 200 && r.body?.token) { setToken(r.body.token); boot(); }
-      else msg.textContent = r.body?.error === 'locked' ? '试错太多次了，重新发一个码' : '验证码不对';
+      else msg.textContent = r.body?.error === 'locked' ? '试错太多次了，点上面「重新发送」拿个新码' : '验证码不对';
     }
   };
+
+  /** 发送成功后的确认 + 重发/改邮箱的出路（原来两者都没有，只能刷新页面）。 */
+  function showSent() {
+    const box = q('sent');
+    box.style.display = 'block';
+    box.innerHTML = `验证码已发到 <b>${esc(email)}</b>`;
+    const again = el('<button class="linky">重新发送</button>');
+    again.onclick = async () => {
+      again.disabled = true;
+      const r = await post('/api/auth/request-code', { email });
+      again.disabled = false;
+      q('msg').textContent = r.status === 200 ? '' : r.status === 429 ? '太频繁了，稍后再试' : '发送失败';
+      if (r.status === 200) { box.innerHTML = ''; box.appendChild(el(`<span>新的验证码已发到 <b>${esc(email)}</b></span>`)); box.appendChild(again); box.appendChild(back); }
+    };
+    const back = el('<button class="linky">换邮箱</button>');
+    back.onclick = () => renderGate();
+    box.appendChild(again);
+    box.appendChild(back);
+  }
+
   q('go').onclick = submit;
   v.querySelectorAll('.field').forEach((f) => (f.onkeydown = (e) => { if (e.key === 'Enter') submit(); }));
   q('email').focus();
