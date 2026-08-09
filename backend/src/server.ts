@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth';
 import { noteRoutes } from './routes/notes';
 import { tagRoutes } from './routes/tags';
 import { cardRoutes } from './routes/cards';
+import { rawRoutes } from './routes/raw';
 import { readerRoutes } from './routes/reader';
 import { publicRoutes } from './routes/public';
 
@@ -50,6 +51,7 @@ export function buildApp() {
   app.route('/api/notes', noteRoutes);
   app.route('/api/tags', tagRoutes);
   app.route('/api/cards', cardRoutes);
+  app.route('/api/raw', rawRoutes);
   app.route('/api', readerRoutes);
 
   // Open cards: JSON under /public/*, mounted OUTSIDE the /api/* auth middleware so
