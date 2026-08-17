@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../server';
 import { createSession } from '../auth/session';
-import { importRawUnits, listRawUnits } from '../raw';
+import { importRawUnits, listRawUnits, type RawUnitInput } from '../raw';
+import { deleteTag, listTags } from '../tags';
 import { readerFeed } from '../permission/engine';
 import { db } from '../db';
 import { makeCard, makeNote, makeTag, makeUser, resetDb } from '../test/helpers';
 
 const app = buildApp();
 
-function unit(over: Record<string, unknown> = {}) {
+function unit(over: Partial<RawUnitInput> = {}): RawUnitInput {
   return {
     source: 'flomo/2026-W31/raw/01-flomo全量导出.md#第1条',
     kind: 'memo',
@@ -98,6 +99,57 @@ describe('raw layer import', () => {
     expect(await db.rawUnit.count()).toBe(0);
   });
 
+  it('rejects look-alike tag names: fullwidth publish prefix, zero-width 私密, control chars', async () => {
+    const user = await makeUser();
+    const { id: token } = await createSession(user.id);
+
+    // 全角减号经 NFKC 折叠成半角，落到红线上
+    const fullwidth = await authedPost(token, { week: '2026-W31', units: [unit({ tags: ['发布－公开'] })] });
+    expect((await fullwidth.json()).problems[0].problem).toBe('forbidden_tag:发布-公开');
+    // 零宽空格夹在「私密」里：与真「私密」肉眼无差，exclude 会 fail-open，必须拒
+    const zwsp = await authedPost(token, { week: '2026-W31', units: [unit({ tags: ['私​密'] })] });
+    expect(zwsp.status).toBe(400);
+    expect((await zwsp.json()).problems[0].problem).toMatch(/^bad_tag_name:/);
+    const ctrl = await authedPost(token, { week: '2026-W31', units: [unit({ tags: ['交易'] })] });
+    expect(ctrl.status).toBe(400);
+    expect(await db.tag.count()).toBe(0);
+  });
+
+  it('rejects impossible calendar dates instead of silently rolling them', async () => {
+    const user = await makeUser();
+    const { id: token } = await createSession(user.id);
+    for (const d of ['2026-02-30', '2026-13-01', '2026-04-31']) {
+      const res = await authedPost(token, { week: '2026-W31', units: [unit({ dated: d })] });
+      expect(res.status).toBe(400);
+      expect((await res.json()).problems[0].problem).toBe('bad_dated');
+    }
+    expect(await db.rawUnit.count()).toBe(0);
+  });
+
+  it('rejects sources that escape 原始/ (absolute or ..)', async () => {
+    const user = await makeUser();
+    const { id: token } = await createSession(user.id);
+    for (const s of ['flomo/../../.ssh/id_rsa', '/etc/passwd', 'flomo//x.md']) {
+      const res = await authedPost(token, { week: '2026-W31', units: [unit({ source: s })] });
+      expect(res.status).toBe(400);
+      expect((await res.json()).problems[0].problem).toBe('bad_source');
+    }
+  });
+
+  it('list route validates week and clamps paging', async () => {
+    const user = await makeUser();
+    const { id: token } = await createSession(user.id);
+    const h = { Authorization: `Bearer ${token}` };
+    await importRawUnits(user.id, '2026-W31', [unit({ source: 'a#1' }), unit({ source: 'a#2' })]);
+
+    expect((await app.request('/api/raw?week=31', { headers: h })).status).toBe(400);
+    const one = await (await app.request('/api/raw?take=1', { headers: h })).json();
+    expect(one.total).toBe(2);
+    expect(one.units).toHaveLength(1);
+    const huge = await (await app.request('/api/raw?take=99999&skip=-5', { headers: h })).json();
+    expect(huge.units).toHaveLength(2);
+  });
+
   it('rejects duplicate sources within one batch and malformed weeks', async () => {
     const user = await makeUser();
     const { id: token } = await createSession(user.id);
@@ -114,10 +166,10 @@ describe('raw layer import', () => {
   it('list filters by week and needsConfirm', async () => {
     const user = await makeUser();
     await importRawUnits(user.id, '2026-W30', [
-      unit({ source: 'a#1', needsConfirm: true }) as never,
-      unit({ source: 'a#2' }) as never,
+      unit({ source: 'a#1', needsConfirm: true }),
+      unit({ source: 'a#2' }),
     ]);
-    await importRawUnits(user.id, '2026-W31', [unit({ source: 'b#1' }) as never]);
+    await importRawUnits(user.id, '2026-W31', [unit({ source: 'b#1' })]);
 
     expect((await listRawUnits(user.id, { week: '2026-W30' })).total).toBe(2);
     expect((await listRawUnits(user.id, { needsConfirm: true })).total).toBe(1);
@@ -127,8 +179,24 @@ describe('raw layer import', () => {
   it('units are scoped to their owner', async () => {
     const a = await makeUser();
     const b = await makeUser();
-    await importRawUnits(a.id, '2026-W31', [unit() as never]);
+    await importRawUnits(a.id, '2026-W31', [unit()]);
     expect((await listRawUnits(b.id, {})).total).toBe(0);
+  });
+
+  it('tag listing counts raw usage separately; deleting a tag detaches it from raw units', async () => {
+    const user = await makeUser();
+    await importRawUnits(user.id, '2026-W31', [unit({ tags: ['交易', '复盘'] })]);
+
+    const before = await listTags(user.id);
+    const trade = before.find((t) => t.name === '交易')!;
+    expect(trade.noteCount).toBe(0);
+    expect(trade.rawUnitCount).toBe(1);
+
+    // 控制台删标签：raw_unit_tags 靠 Cascade 剥离，单元本身留下，重传可补回
+    expect((await deleteTag(user.id, trade.id, 'detach')).ok).toBe(true);
+    const { units } = await listRawUnits(user.id, {});
+    expect(units).toHaveLength(1);
+    expect(units[0].tags.map((t) => t.name)).toEqual(['复盘']);
   });
 });
 
@@ -141,7 +209,7 @@ describe('raw layer stays out of sharing', () => {
     const note = await makeNote(owner.id, '展示层笔记', [tag.id], new Date('2026-08-01T00:00:00Z'));
     // 原始单元带上与 share 完全相同的标签——如果泄漏，正是从这里漏出去
     await importRawUnits(owner.id, '2026-W31', [
-      unit({ tags: ['交易'], body: '绝不能出现在读者端的原始正文' }) as never,
+      unit({ tags: ['交易'], body: '绝不能出现在读者端的原始正文' }),
     ]);
 
     const card = await makeCard(owner.id, new Date('2030-01-01T00:00:00Z'), [{ include: [tag.id] }]);

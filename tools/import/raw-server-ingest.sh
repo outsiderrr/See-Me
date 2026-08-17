@@ -14,6 +14,17 @@ EMAIL=${1:?用法: raw-server-ingest.sh <邮箱> <raw-upload.json>}
 FILE=${2:?用法: raw-server-ingest.sh <邮箱> <raw-upload.json>}
 DIR=$(cd "$(dirname "$FILE")" && pwd)
 BASE_HOST=http://localhost:3000
+TOKEN=
+
+# 清场装在最前面：payload 含全部原始正文（比展示层库文件敏感得多），OTP 限流、
+# 验证码为空、docker cp 失败……任何一处早退都不能把明文留在宿主 home 下。
+cleanup() {
+  [ -n "$TOKEN" ] && curl -s -X POST "$BASE_HOST/api/auth/logout" \
+    -H "Authorization: Bearer $TOKEN" >/dev/null 2>&1 || true
+  docker compose exec -T app rm -rf /tmp/fathom-raw >/dev/null 2>&1 || true
+  rm -f "$FILE"
+}
+trap cleanup EXIT
 
 [ -f docker-compose.yml ] || { echo "请在 /opt/see-me 下运行（要用 docker compose）"; exit 1; }
 
@@ -33,7 +44,7 @@ TOKEN=$(curl -sf -X POST "$BASE_HOST/api/auth/verify" \
   -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"code\":\"$CODE\"}" \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 [ -n "${TOKEN:-}" ] || { echo "验证码校验失败"; exit 1; }
-trap 'curl -s -X POST "$BASE_HOST/api/auth/logout" -H "Authorization: Bearer $TOKEN" >/dev/null 2>&1 || true' EXIT
+# 从这里起 cleanup 也会吊销会话（不留 60 天长活 token）
 
 # --- 2) 容器内跑 ingest（payload 固定名 raw-upload.json，见 raw-upload.sh） ---
 RC=0
@@ -45,7 +56,5 @@ docker compose exec -T -e FATHOM_TOKEN="$TOKEN" app \
   node /tmp/fathom-raw/raw.mjs ingest /tmp/fathom-raw/raw-upload.json \
   --base http://localhost:3000 || RC=$?
 
-# --- 3) 清场：容器副本 + 宿主明文 payload（正文全在里面，宿主不留） ---
-docker compose exec -T app rm -rf /tmp/fathom-raw || true
-rm -f "$FILE"
+# --- 3) 清场由 trap cleanup 统一做（容器副本 + 宿主明文 payload + 吊销 token） ---
 exit $RC

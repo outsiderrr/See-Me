@@ -33,7 +33,7 @@ model Note {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   noteTags NoteTag[]
   images   NoteImage[]
 
@@ -76,12 +76,12 @@ model RawUnit {
   // 观点归属（用户观点/用户随记/AI整理/课程转录/外部摘录/系统内容/混合/不确定）
   // ——区分"用户保存的"与"用户说的"，见 docs/标签口径.md
   attribution  String
-  confidence   String  // 高 | 中 | 低
-  needsConfirm Boolean @default(false) @map("needs_confirm")
-  duplicateOf  String? @map("duplicate_of")
+  confidence   String // 高 | 中 | 低
+  needsConfirm Boolean   @default(false) @map("needs_confirm")
+  duplicateOf  String?   @map("duplicate_of")
   reason       String?
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   rawUnitTags RawUnitTag[]

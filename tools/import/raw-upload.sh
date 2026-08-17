@@ -22,8 +22,11 @@ FILE=${1:-$(ls -t "$LAKE/周报"/*/*-标签.json 2>/dev/null | head -1)}
 [ -n "${FILE:-}" ] && [ -f "$FILE" ] || { echo "周报/ 里没找到 <week>-标签.json"; exit 1; }
 echo "== 标签文件：$FILE"
 
-# --- 1) 本地 check：不过不上传。payload 放临时目录（含全部正文，不落湖、不进仓库） ---
-PAYLOAD=$(mktemp -d)/raw-upload.json
+# --- 1) 本地 check：不过不上传。payload 放临时目录（含全部正文，不落湖、不进仓库），
+#         无论 check 失败 / scp 失败 / 被打断 / 成功，trap 都连目录一起清掉 ---
+PAYLOAD_DIR=$(mktemp -d)
+trap 'rm -rf "$PAYLOAD_DIR"' EXIT INT TERM
+PAYLOAD="$PAYLOAD_DIR/raw-upload.json"
 node "$HERE/raw.mjs" check "$FILE" --lake "$LAKE" --out "$PAYLOAD"
 
 # --- 2) 上传。payload 在远端固定叫 raw-upload.json：远端命令不内插本地文件名
@@ -32,7 +35,6 @@ echo "== 上传到 $SERVER:~/fathom-import/"
 ssh "$SERVER" 'mkdir -p ~/fathom-import'
 scp -q "$HERE/raw.mjs" "$HERE/raw-server-ingest.sh" "$SERVER:fathom-import/"
 scp -q "$PAYLOAD" "$SERVER:fathom-import/raw-upload.json"
-rm -f "$PAYLOAD"
 
 # --- 3) 服务器上入库（dev OTP 自动捞码；真发信要手输，所以 -t 给终端） ---
 RC=0

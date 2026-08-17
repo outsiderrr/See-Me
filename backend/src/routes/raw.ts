@@ -8,15 +8,14 @@ import * as Raw from '../raw';
 export const rawRoutes = new Hono<AuthVars>();
 rawRoutes.use('*', requireAuth);
 
+// 上限与 tools/import/raw.mjs 的 check 保持同值：湖侧先拦，服务端兜底整批拒绝。
 const MAX_UNITS_PER_REQUEST = 500;
 const MAX_SOURCE = 500;
 const MAX_TITLE = 200;
 const MAX_BODY = 200_000;
 const MAX_TAGS = 30;
-const MAX_TAG_NAME = 50;
 const MAX_REASON = 2000;
 const WEEK_RE = /^\d{4}-W\d{2}$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type BadUnit = { index: number; source?: string; problem: string };
 
@@ -26,12 +25,12 @@ function parseUnit(input: unknown, index: number): Raw.RawUnitInput | BadUnit {
   const source = typeof u.source === 'string' ? u.source.trim() : '';
   const bad = (problem: string): BadUnit => ({ index, source: source || undefined, problem });
 
-  if (!source || source.length > MAX_SOURCE) return bad('bad_source');
+  if (!source || source.length > MAX_SOURCE || !Raw.isSaneSource(source)) return bad('bad_source');
   if (typeof u.kind !== 'string' || !Raw.RAW_KINDS.has(u.kind)) return bad('bad_kind');
   if (typeof u.title !== 'string' || !u.title.trim() || u.title.length > MAX_TITLE) return bad('bad_title');
   // body 允许为空串：flomo 里存在只有标签没有正文的条目，备份层要如实保留
   if (typeof u.body !== 'string' || u.body.length > MAX_BODY) return bad('bad_body');
-  if (u.dated != null && (typeof u.dated !== 'string' || !DATE_RE.test(u.dated))) return bad('bad_dated');
+  if (u.dated != null && (typeof u.dated !== 'string' || !Raw.isIsoDate(u.dated))) return bad('bad_dated');
   if (typeof u.attribution !== 'string' || !Raw.RAW_ATTRIBUTIONS.has(u.attribution)) return bad('bad_attribution');
   if (typeof u.confidence !== 'string' || !Raw.RAW_CONFIDENCES.has(u.confidence)) return bad('bad_confidence');
   if (u.needsConfirm !== undefined && typeof u.needsConfirm !== 'boolean') return bad('bad_needs_confirm');
@@ -42,8 +41,8 @@ function parseUnit(input: unknown, index: number): Raw.RawUnitInput | BadUnit {
   const tags: string[] = [];
   for (const t of u.tags) {
     if (typeof t !== 'string') return bad('bad_tags');
-    const name = t.trim();
-    if (!name || name.length > MAX_TAG_NAME) return bad('bad_tags');
+    const name = Raw.normalizeRawTagName(t);
+    if (!name) return bad(`bad_tag_name:${t.slice(0, 60)}`);
     if (Raw.isForbiddenRawTag(name)) return bad(`forbidden_tag:${name}`);
     if (!tags.includes(name)) tags.push(name);
   }
