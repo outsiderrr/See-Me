@@ -4,7 +4,7 @@ import type { CardKind } from '../cards';
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
-    `TRUNCATE TABLE "card_holders","share_tags","shares","cards","note_images","note_tags","notes","tags","sessions","email_otps","rate_limits","users" RESTART IDENTITY CASCADE;`,
+    `TRUNCATE TABLE "card_holders","share_tags","shares","cards","note_images","note_tags","notes","raw_unit_tags","raw_units","tags","sessions","email_otps","rate_limits","users" RESTART IDENTITY CASCADE;`,
   );
 }
 

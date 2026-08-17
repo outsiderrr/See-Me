@@ -8,7 +8,7 @@ export async function listTags(userId: string) {
   const tags = await db.tag.findMany({
     where: { userId },
     include: {
-      _count: { select: { noteTags: true, shareTags: true } },
+      _count: { select: { noteTags: true, shareTags: true, rawUnitTags: true } },
       noteTags: { select: { note: { select: { updatedAt: true } } } },
     },
   });
@@ -24,6 +24,9 @@ export async function listTags(userId: string) {
       ),
       noteCount: t._count.noteTags,
       shareCount: t._count.shareTags,
+      // 原始材料层（raw_units）对该标签的引用数。只被原始层使用的标签 noteCount 为 0，
+      // 单看展示层会像"从没用过"；分开计数而不合并，因为两层语义不同（备份 vs 发布）。
+      rawUnitCount: t._count.rawUnitTags,
     }))
     .sort((a, b) => {
       const at = a.lastUsedAt?.getTime() ?? 0;

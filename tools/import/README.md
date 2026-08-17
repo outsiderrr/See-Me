@@ -20,6 +20,25 @@
 | `server-ingest.sh` | 服务器 | dev OTP 自动捞码换 token → 容器内跑 ingest |
 | `parse.mjs` | Mac | 解析原始素材，只给 check 的逐字比对用 |
 | `PROMPT.md` | —— | 正式版提炼提示词，交给用户自己的 AI |
+| `raw.mjs check` | Mac | **原始材料层**：从 `周报/<week>/<week>-标签.json` 回溯 `原始/` 正文、拦红线/假日期/路径逃逸、产自足 payload |
+| `raw.mjs ingest` | 服务器（app 容器内） | POST /api/raw/import（幂等 upsert，重传=刷新） |
+| `raw-upload.sh` | Mac（**用户跑**） | 一键：check → scp → ssh 入库；payload 走临时目录、trap 清场 |
+| `raw-server-ingest.sh` | 服务器 | 同 server-ingest.sh 的 OTP 姿势 → 容器内跑 raw.mjs ingest；无 state 回拷 |
+
+### 第二条管线：原始材料层
+
+展示层管线（上面）把 AI 提炼的**笔记**送上服务器；原始材料管线把**原始单元本身 +
+标签**送上服务器做备份与索引（服务端 `raw_units` 表，结构上进不了任何分享）。区别：
+
+- 幂等锚是 `source`（相对 `原始/` 的路径 + `#第N条` / `#任务轮次N` 判别符），重传=刷新，
+  **没有 state 文件**——备份镜像语义，也不存在"删过的不复活"问题（控制台不能删原始单元）。
+- 服务端硬拒 `发布-*` 与「可分享」标签，一个坏单元整批打回；标签名先 NFKC 归一再判红线。
+- 标注口径见 `docs/标签口径.md`（暂行）。
+
+```sh
+tools/import/raw-upload.sh                              # 取 周报/ 里最新的 <week>-标签.json
+tools/import/raw-upload.sh ~/通用空间/潜心/周报/2026-W31/2026-W31-标签.json
+```
 
 ## 一次导入的完整流程
 
@@ -81,12 +100,15 @@ state 在湖里：`~/通用空间/潜心/.import-state.json`（`source+标题+�
 
 尽量什么都不留：库文件固定传成 `~/fathom-import/upload.md`（每次覆盖，ingest 完
 即删）；state 拷回湖后也从服务器删掉（里面的标题就是笔记内容）；容器内 /tmp 副本
-每次清场；token 用 trap 保证任何退出路径都 logout。宿主上长期存在的只有
-import.mjs 和 server-ingest.sh 两个脚本。
+每次清场；token 用 trap 保证任何退出路径都 logout。原始材料管线同理：payload 固定传成
+`~/fathom-import/raw-upload.json`，`raw-server-ingest.sh` 的 trap 在**任何**退出路径
+（含 OTP 限流早退）都删掉它并清容器副本。宿主上长期存在的只有 `~/fathom-import/` 下的
+四个脚本：import.mjs、server-ingest.sh、raw.mjs、raw-server-ingest.sh。
 
 ## 排错
 
 - OTP 限流：同一邮箱 5 次/10 分钟（另有 IP 与全局桶），稍等再跑
-- 配了真发信后 `server-ingest.sh` 捞不到码，会提示你从邮箱里读出来手输
-- 切了 aliyun 短信驱动后 `server-ingest.sh` 捞不到码：把捞 CODE 那两行换成 `read` 手输
+- 配了真发信后 `server-ingest.sh` / `raw-server-ingest.sh` 捞不到码，会提示你从邮箱里读出来手输
+- 切了 aliyun 短信驱动后捞不到码：把捞 CODE 那两行换成 `read` 手输
 - `upload.sh` 半途失败：state 已尽量拷回，修好直接重跑（幂等，不会重复入库）
+- `raw-upload.sh` 半途失败：直接重跑（幂等，重传=刷新）；`check` 报错时 0 个单元上传

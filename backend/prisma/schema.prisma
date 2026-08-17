@@ -20,6 +20,7 @@ model User {
   cards    Card[]
   holdings CardHolder[]
   sessions Session[]
+  rawUnits RawUnit[]
 
   @@map("users")
 }
@@ -32,7 +33,7 @@ model Note {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   noteTags NoteTag[]
   images   NoteImage[]
 
@@ -47,12 +48,58 @@ model Tag {
   icon     String?
   pinnedAt DateTime? @map("pinned_at") @db.Timestamptz(6)
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  noteTags  NoteTag[]
-  shareTags ShareTag[]
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  noteTags    NoteTag[]
+  shareTags   ShareTag[]
+  rawUnitTags RawUnitTag[]
 
   @@unique([userId, name])
   @@map("tags")
+}
+
+// 原始材料层：数据湖 原始/ 里单元级内容的服务器备份 + 标签索引。
+// 与展示层（Note）刻意分离成独立表——邀请卡/公开卡的匹配只查 Note→NoteTag
+// （见 Share 注释），原始材料在结构上就进不了任何分享，不依赖任何运行时判断。
+// 展示层笔记仍由本地 AI 整理后经 tools/import 上传，这里不做服务端整理。
+model RawUnit {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  // 落标签的批次周（如 "2026-W31"），与数据湖 周报/<week>/<week>-标签.json 对应
+  week         String
+  // 相对 原始/ 的来源引用，含单元判别符（"...md#第17条"、"...md#任务轮次3"），
+  // 是幂等 upsert 的锚，一个字都不能错
+  source       String
+  kind         String // memo | chat | voice | task
+  title        String
+  body         String // 单元正文备份。附件不在库里（rsync 文件级备份负责）
+  dated        DateTime? @db.Date
+  // 观点归属（用户观点/用户随记/AI整理/课程转录/外部摘录/系统内容/混合/不确定）
+  // ——区分"用户保存的"与"用户说的"，见 docs/标签口径.md
+  attribution  String
+  confidence   String // 高 | 中 | 低
+  needsConfirm Boolean   @default(false) @map("needs_confirm")
+  duplicateOf  String?   @map("duplicate_of")
+  reason       String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rawUnitTags RawUnitTag[]
+
+  @@unique([userId, source])
+  @@index([userId, week])
+  @@map("raw_units")
+}
+
+model RawUnitTag {
+  rawUnitId String @map("raw_unit_id")
+  tagId     String @map("tag_id")
+
+  rawUnit RawUnit @relation(fields: [rawUnitId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([rawUnitId, tagId])
+  @@map("raw_unit_tags")
 }
 
 model NoteImage {
