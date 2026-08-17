@@ -28,7 +28,10 @@ const KIND_BY_PREFIX = [
   ['codex/', 'task'],
   ['语音备忘录/', 'voice'],
 ];
-const ATTRIBUTIONS = new Set(['用户观点', '用户随记', 'AI整理', '课程转录', '外部摘录', '系统内容', '混合', '不确定']);
+// 与 backend/src/raw.ts RAW_ATTRIBUTIONS 同值（AI 侧分 整理/观点/引用，见 docs/标签口径.md）
+const ATTRIBUTIONS = new Set([
+  '用户观点', '用户随记', 'AI整理', 'AI观点', 'AI引用', '课程转录', '外部摘录', '系统内容', '混合', '不确定',
+]);
 const CONFIDENCES = new Set(['高', '中', '低']);
 const WEEK_RE = /^\d{4}-W\d{2}$/;
 // 与 backend/src/routes/raw.ts 的 parseUnit 同值：服务端整批拒绝，这里必须先拦

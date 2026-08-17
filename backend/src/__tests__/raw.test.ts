@@ -115,6 +115,18 @@ describe('raw layer import', () => {
     expect(await db.tag.count()).toBe(0);
   });
 
+  it('accepts the split AI attributions and rejects unknown ones', async () => {
+    const user = await makeUser();
+    const { id: token } = await createSession(user.id);
+    for (const [i, a] of ['AI整理', 'AI观点', 'AI引用'].entries()) {
+      const res = await authedPost(token, { week: '2026-W32', units: [unit({ source: `x#${i}`, attribution: a })] });
+      expect(res.status).toBe(200);
+    }
+    const bad = await authedPost(token, { week: '2026-W32', units: [unit({ source: 'x#9', attribution: 'AI说的' })] });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).problems[0].problem).toBe('bad_attribution');
+  });
+
   it('rejects impossible calendar dates instead of silently rolling them', async () => {
     const user = await makeUser();
     const { id: token } = await createSession(user.id);
